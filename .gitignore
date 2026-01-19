@@ -212,7 +212,6 @@ __marimo__/
 .terraform.lock.hcl
 terraform.tfstate*
 .terraform/*
->>>>>>> 0c5842e (Initial commit)
 terraform.tfstate
 terraform.tfstate.backup
 
