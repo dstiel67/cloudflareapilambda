@@ -14,9 +14,15 @@ This Lambda function automatically syncs data from your Cloudflare KV (Key-Value
 
 ### 1. Build Lambda Package
 
+**Recommended (Universal):**
 ```bash
-./build_lambda.sh
+./build.sh
 ```
+
+**Platform-Specific:**
+- **Linux:** `./build_lambda_linux.sh`
+- **Unix/macOS/Windows Git Bash:** `./build_lambda.sh`
+- **Windows Command Prompt:** `build_lambda.bat`
 
 This packages the Lambda function with all Python dependencies.
 

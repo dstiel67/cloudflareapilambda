@@ -49,13 +49,43 @@ This project provides an AWS Lambda function that synchronizes data from Cloudfl
 
 ### 1. Build Lambda Package
 
-The Lambda function requires Python dependencies to be packaged:
+The Lambda function requires Python dependencies to be packaged. Choose the method that works best for your system:
 
+**Option 1: Universal Build Script (Recommended)**
+```bash
+./build.sh
+```
+*Automatically detects your OS and uses the optimal build script*
+
+**Option 2: Platform-Specific Scripts**
+
+*Linux (optimized):*
+```bash
+./build_lambda_linux.sh
+```
+
+*Unix/macOS/Windows with Git Bash:*
 ```bash
 ./build_lambda.sh
 ```
 
+*Windows (Command Prompt/PowerShell):*
+```cmd
+build_lambda.bat
+```
+
+**Option 3: Automatic with Terraform**
+```bash
+terraform apply
+```
+*Terraform will automatically build the package using the appropriate script*
+
 This creates `lambda_function.zip` with all dependencies included.
+
+**Requirements:**
+- Python 3.11+ with pip
+- For Windows: Either Git Bash with 7z, or Command Prompt with 7-Zip or PowerShell
+- For Unix/Linux: zip command
 
 ### 2. Configure Variables
 
@@ -80,6 +110,8 @@ alert_email = "your-email@example.com"  # Leave empty to disable alerts
 
 ### 3. Deploy Infrastructure
 
+Terraform will automatically build the Lambda package and deploy:
+
 ```bash
 # Initialize Terraform
 terraform init
@@ -87,9 +119,11 @@ terraform init
 # Review the deployment plan
 terraform plan
 
-# Deploy the infrastructure
+# Deploy the infrastructure (includes automatic build)
 terraform apply
 ```
+
+*Note: Terraform automatically detects your operating system and runs the appropriate build script when Lambda source files change.*
 
 ### 4. Configure Cloudflare Credentials
 

@@ -191,6 +191,38 @@ resource "aws_iam_role_policy_attachment" "lambda_policy_attachment" {
 data "aws_caller_identity" "current" {}
 data "aws_region" "current" {}
 
+# Local values for build script selection
+locals {
+  # Detect operating system and select appropriate build script
+  is_windows = substr(pathexpand("~"), 0, 1) == "/" ? false : true
+  build_script = local.is_windows ? "build_lambda.bat" : "./build.sh"
+  
+  # Generate a hash of all Lambda source files to trigger rebuilds
+  lambda_source_hash = sha256(join("", [
+    for f in fileset("${path.module}/lambda_function", "**/*.py") :
+    filesha256("${path.module}/lambda_function/${f}")
+  ]))
+}
+
+# Null resource to build Lambda package when source changes
+resource "null_resource" "lambda_build" {
+  # Trigger rebuild when source files change or build script changes
+  triggers = {
+    source_hash = local.lambda_source_hash
+    requirements_hash = filesha256("${path.module}/lambda_function/requirements.txt")
+    build_script_hash = fileexists("${path.module}/build.sh") ? filesha256("${path.module}/build.sh") : ""
+    build_script_linux_hash = fileexists("${path.module}/build_lambda_linux.sh") ? filesha256("${path.module}/build_lambda_linux.sh") : ""
+    build_script_cross_hash = fileexists("${path.module}/build_lambda.sh") ? filesha256("${path.module}/build_lambda.sh") : ""
+    build_script_windows_hash = fileexists("${path.module}/build_lambda.bat") ? filesha256("${path.module}/build_lambda.bat") : ""
+  }
+
+  # Build the Lambda package
+  provisioner "local-exec" {
+    command = local.build_script
+    working_dir = path.module
+  }
+}
+
 # Lambda function
 resource "aws_lambda_function" "cloudflare_data_sync" {
   filename         = "${path.module}/lambda_function.zip"
@@ -225,7 +257,8 @@ resource "aws_lambda_function" "cloudflare_data_sync" {
 
   depends_on = [
     aws_iam_role_policy_attachment.lambda_policy_attachment,
-    aws_cloudwatch_log_group.lambda_logs
+    aws_cloudwatch_log_group.lambda_logs,
+    null_resource.lambda_build
   ]
 
   tags = {
