@@ -213,3 +213,6 @@ __marimo__/
 terraform.tfstate*
 .terraform/*
 >>>>>>> 0c5842e (Initial commit)
+terraform.tfstate
+terraform.tfstate.backup
+
