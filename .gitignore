@@ -207,7 +207,7 @@ marimo/_static/
 marimo/_lsp/
 __marimo__/
 =======
-/lambda_function.zip
+/*.zip
 .DS_Store
 .terraform.lock.hcl
 terraform.tfstate*

@@ -1,21 +1,22 @@
-# Cloudflare Data Sync Lambda Function Infrastructure
-# This file contains all resources needed for the Cloudflare-to-DynamoDB sync Lambda function
+# Legacy Cloudflare Data Sync Lambda Function Infrastructure
+# This file contains resources for the OPTIONAL legacy Cloudflare-to-DynamoDB sync Lambda function
+# NOTE: This is now optional - the primary system uses DynamoDB as source of truth via Update API
 
 # Variables for Lambda configuration
 variable "cloudflare_secret_name" {
-  description = "Name of the AWS Secrets Manager secret containing Cloudflare credentials"
+  description = "Name of the AWS Secrets Manager secret containing Cloudflare credentials (optional - for legacy sync)"
   type        = string
   default     = "cloudflare-kv-credentials"
 }
 
 variable "lambda_function_name" {
-  description = "Name of the Lambda function"
+  description = "Name of the legacy Cloudflare sync Lambda function"
   type        = string
   default     = "cloudflare-data-sync"
 }
 
 variable "dynamodb_table_name" {
-  description = "Name of the DynamoDB table for storing Cloudflare data"
+  description = "Base name of the DynamoDB table for storing data"
   type        = string
   default     = "cloudflare-kv-data"
 }
@@ -32,7 +33,8 @@ variable "lambda_memory_size" {
   default     = 512
 }
 
-# DynamoDB table for storing Cloudflare KV data
+# Legacy DynamoDB table (kept for backwards compatibility)
+# NOTE: The main table with Streams is created in notification.tf
 resource "aws_dynamodb_table" "cloudflare_kv_data" {
   name           = var.dynamodb_table_name
   billing_mode   = "PAY_PER_REQUEST"
@@ -62,19 +64,19 @@ resource "aws_dynamodb_table" "cloudflare_kv_data" {
 
   tags = {
     Name        = var.dynamodb_table_name
-    Purpose     = "CloudflareDataSync"
+    Purpose     = "CloudflareDataSync-Legacy"
     Environment = "production"
   }
 }
 
-# Secrets Manager secret for Cloudflare credentials
+# Secrets Manager secret for Cloudflare credentials (optional - for legacy sync)
 resource "aws_secretsmanager_secret" "cloudflare_credentials" {
   name        = var.cloudflare_secret_name
-  description = "Cloudflare API credentials for KV namespace access"
+  description = "Cloudflare API credentials for KV namespace access (optional - for legacy sync)"
 
   tags = {
     Name        = var.cloudflare_secret_name
-    Purpose     = "CloudflareDataSync"
+    Purpose     = "CloudflareDataSync-Legacy"
     Environment = "production"
   }
 }
@@ -149,8 +151,8 @@ resource "aws_iam_policy" "lambda_policy" {
           "dynamodb:DescribeTable"
         ]
         Resource = [
-          aws_dynamodb_table.cloudflare_kv_data.arn,
-          "${aws_dynamodb_table.cloudflare_kv_data.arn}/index/*"
+          aws_dynamodb_table.cloudflare_kv_data_with_stream.arn,
+          "${aws_dynamodb_table.cloudflare_kv_data_with_stream.arn}/index/*"
         ]
       },
       # Secrets Manager permissions
@@ -238,10 +240,15 @@ resource "aws_lambda_function" "cloudflare_data_sync" {
   environment {
     variables = {
       SECRETS_MANAGER_SECRET_NAME = aws_secretsmanager_secret.cloudflare_credentials.name
-      DYNAMODB_TABLE_NAME        = aws_dynamodb_table.cloudflare_kv_data.name
+      DYNAMODB_TABLE_NAME        = aws_dynamodb_table.cloudflare_kv_data_with_stream.name
       RETRY_MAX_ATTEMPTS         = "3"
       API_TIMEOUT_SECONDS        = "30"
     }
+  }
+
+  # Dead Letter Queue configuration
+  dead_letter_config {
+    target_arn = aws_sqs_queue.lambda_dlq.arn
   }
 
   # Enable X-Ray tracing
@@ -257,6 +264,7 @@ resource "aws_lambda_function" "cloudflare_data_sync" {
 
   depends_on = [
     aws_iam_role_policy_attachment.lambda_policy_attachment,
+    aws_iam_role_policy_attachment.lambda_dlq_policy_attachment,
     aws_cloudwatch_log_group.lambda_logs,
     null_resource.lambda_build
   ]

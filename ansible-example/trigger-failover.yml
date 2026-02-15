@@ -1,0 +1,91 @@
+---
+# Ansible Playbook: Trigger Failover Event
+# 
+# This playbook triggers a failover event by sending a message to Kafka.
+# It can be used for manual failover, scheduled maintenance, or automated
+# failover based on infrastructure monitoring.
+
+- name: Trigger Failover Event
+  hosts: localhost
+  gather_facts: no
+  vars:
+    kafka_bootstrap_servers: "{{ lookup('env', 'KAFKA_BOOTSTRAP_SERVERS') | default('localhost:9092') }}"
+    kafka_topic: "failover-events"
+    failover_apps:
+      - app_id: "app1"
+        failover_status: "Y"
+        reason: "Primary datacenter unavailable"
+      - app_id: "app2"
+        failover_status: "Y"
+        reason: "Primary datacenter unavailable"
+    triggered_by: "{{ lookup('env', 'USER') | default('ansible') }}"
+    severity: "critical"
+
+  tasks:
+    - name: Install required Python packages
+      pip:
+        name:
+          - kafka-python
+        state: present
+      delegate_to: localhost
+
+    - name: Generate failover event payload
+      set_fact:
+        failover_event:
+          event_type: "failover"
+          timestamp: "{{ ansible_date_time.iso8601 }}"
+          applications: "{{ failover_apps }}"
+          triggered_by: "{{ triggered_by }}"
+          severity: "{{ severity }}"
+
+    - name: Display failover event
+      debug:
+        msg: "Triggering failover event: {{ failover_event }}"
+
+    - name: Send failover event to Kafka
+      shell: |
+        python3 << 'EOF'
+        import json
+        from kafka import KafkaProducer
+        
+        # Create Kafka producer
+        producer = KafkaProducer(
+            bootstrap_servers='{{ kafka_bootstrap_servers }}',
+            value_serializer=lambda v: json.dumps(v).encode('utf-8')
+        )
+        
+        # Send event
+        event = {{ failover_event | to_json }}
+        future = producer.send('{{ kafka_topic }}', event)
+        result = future.get(timeout=10)
+        
+        print(f"Event sent to partition {result.partition} at offset {result.offset}")
+        
+        producer.close()
+        EOF
+      register: kafka_result
+
+    - name: Display Kafka result
+      debug:
+        msg: "{{ kafka_result.stdout }}"
+
+    - name: Log failover event
+      lineinfile:
+        path: /var/log/failover-events.log
+        line: "{{ ansible_date_time.iso8601 }} - {{ triggered_by }} - {{ failover_event | to_json }}"
+        create: yes
+      ignore_errors: yes
+
+# Usage Examples:
+#
+# 1. Trigger failover for all apps:
+#    ansible-playbook trigger-failover.yml
+#
+# 2. Trigger failover for specific app:
+#    ansible-playbook trigger-failover.yml -e "failover_apps=[{app_id: 'app1', failover_status: 'Y', reason: 'Maintenance'}]"
+#
+# 3. Clear failover (set to N):
+#    ansible-playbook trigger-failover.yml -e "failover_apps=[{app_id: 'app1', failover_status: 'N', reason: 'Maintenance complete'}]"
+#
+# 4. Use custom Kafka server:
+#    KAFKA_BOOTSTRAP_SERVERS=kafka.example.com:9092 ansible-playbook trigger-failover.yml

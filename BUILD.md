@@ -9,34 +9,58 @@ The Lambda function requires Python dependencies (boto3, requests) to be package
 ```bash
 ./build.sh
 ```
-*Automatically detects your OS and uses the optimal build script*
+*Automatically detects your OS and builds ALL Lambda functions using optimal scripts*
 
 ### Platform-Specific Build Scripts
 
 #### Linux (Optimized)
 
+**All Lambda functions:**
 ```bash
-./build_lambda_linux.sh
+./build.sh  # Recommended - builds all functions
+```
+
+**Individual functions:**
+```bash
+./build_lambda_linux.sh           # Main Lambda (optimized)
+./build_notification_lambda_linux.sh  # Notification Lambda (optimized)
+./build_sse_lambda_linux.sh       # SSE Lambda (optimized)
 ```
 
 #### Unix/Linux/macOS or Windows with Git Bash
 
+**All Lambda functions:**
 ```bash
-./build_lambda.sh
+./build.sh  # Recommended - builds all functions
+```
+
+**Individual functions:**
+```bash
+./build_lambda.sh                 # Main Lambda
+./build_notification_lambda.sh    # Notification Lambda
+./build_sse_lambda.sh             # SSE Lambda
 ```
 
 #### Windows (Command Prompt/PowerShell)
 
+**All Lambda functions:**
 ```cmd
-build_lambda.bat
+build_all.bat
+```
+
+**Individual functions:**
+```cmd
+build_lambda.bat                  # Main Lambda
+build_notification_lambda.bat     # Notification Lambda
+build_sse_lambda.bat              # SSE Lambda
 ```
 
 All scripts will:
-1. Create a temporary `lambda_package` directory
-2. Copy the Lambda function code
-3. Install Python dependencies from `requirements.txt`
+1. Create temporary package directories for each Lambda
+2. Copy the respective Lambda function code
+3. Install Python dependencies from requirements.txt
 4. Remove unnecessary files (tests, cache, etc.)
-5. Create `lambda_function.zip` with everything
+5. Create deployment zip files for each Lambda function
 
 ## Requirements
 
@@ -55,6 +79,14 @@ All scripts will:
 ### Unix/Linux/macOS
 - `zip` command (usually pre-installed)
 - `find` command (usually pre-installed)
+
+## Output Files
+
+The build process creates these deployment packages:
+
+- `lambda_function.zip` - Main Cloudflare sync Lambda (~33-34MB)
+- `notification_lambda.zip` - DynamoDB Stream notification handler (~15MB)
+- `sse_lambda.zip` - Server-Sent Events endpoint (~15MB)
 
 ## Manual Build (Alternative)
 

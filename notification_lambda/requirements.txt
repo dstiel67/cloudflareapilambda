@@ -1,0 +1,5 @@
+# AWS SDK for Python (usually included in Lambda runtime, but specified for completeness)
+boto3>=1.26.0
+
+# No additional dependencies needed for this Lambda function
+# All required libraries are part of Python standard library or Lambda runtime

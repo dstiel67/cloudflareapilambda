@@ -1,13 +1,13 @@
-# Terraform configuration for Cloudflare KV to DynamoDB sync Lambda function
+# Terraform configuration for DynamoDB Redirect Status Management
 # Copy this file to terraform.tfvars and update with your values
 
 # AWS Configuration
 aws_region = "us-east-1"
 
 # Lambda Function Configuration
-lambda_function_name   = "cloudflare-data-sync"
-dynamodb_table_name    = "cloudflare-kv-data"
-cloudflare_secret_name = "cloudflare-kv-credentials"
+lambda_function_name   = "cloudflare-data-sync"        # Legacy sync function (optional)
+dynamodb_table_name    = "cloudflare-kv-data"          # Base name for DynamoDB tables
+cloudflare_secret_name = "cloudflare-kv-credentials"   # For legacy sync (optional)
 
 # Lambda Performance Settings
 lambda_timeout     = 300  # 5 minutes
@@ -17,3 +17,6 @@ lambda_memory_size = 512  # MB
 alert_email           = ""      # Leave empty to disable alerts, or set to your email
 error_rate_threshold  = 5       # Percentage
 duration_threshold_ms = 60000   # 60 seconds
+
+# Note: Cloudflare credentials are only needed if you plan to use the legacy sync function
+# The primary system uses DynamoDB as the source of truth via the Update API

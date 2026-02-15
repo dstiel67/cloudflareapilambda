@@ -1,18 +1,19 @@
-# Quick Start Guide - Cloudflare KV to DynamoDB Sync
+# Quick Start Guide - DynamoDB Redirect Status Management
 
 ## What This Project Does
 
-This Lambda function automatically syncs data from your Cloudflare KV (Key-Value) storage to Amazon DynamoDB.
+This system manages redirect status in DynamoDB with real-time notifications to web clients via Server-Sent Events (SSE).
 
 ## Prerequisites
 
 - AWS CLI configured
 - Terraform installed (1.0+)
-- Cloudflare API credentials (API token, account ID, namespace ID)
+- Python 3.11+ with pip
+- (Optional) Cloudflare API credentials for legacy sync
 
 ## Deploy in 4 Steps
 
-### 1. Build Lambda Package
+### 1. Build Lambda Packages
 
 **Recommended (Universal):**
 ```bash
@@ -20,11 +21,11 @@ This Lambda function automatically syncs data from your Cloudflare KV (Key-Value
 ```
 
 **Platform-Specific:**
-- **Linux:** `./build_lambda_linux.sh`
-- **Unix/macOS/Windows Git Bash:** `./build_lambda.sh`
-- **Windows Command Prompt:** `build_lambda.bat`
+- **Linux:** Uses optimized scripts automatically
+- **Unix/macOS/Windows Git Bash:** Uses cross-platform scripts
+- **Windows Command Prompt:** `build_all.bat`
 
-This packages the Lambda function with all Python dependencies.
+This packages all Lambda functions with Python dependencies.
 
 ### 2. Deploy Infrastructure
 
@@ -33,46 +34,46 @@ terraform init
 terraform apply
 ```
 
-### 3. Add Cloudflare Credentials
+### 3. Update Redirect Status
 
 ```bash
-# Get secret name
-SECRET_NAME=$(terraform output -raw secrets_manager_secret_name)
+# Get update endpoint
+UPDATE_ENDPOINT=$(terraform output -raw update_redirect_status_endpoint)
 
-# Add your credentials
-aws secretsmanager update-secret \
-  --secret-id "$SECRET_NAME" \
-  --secret-string '{
-    "api_token": "YOUR_CLOUDFLARE_API_TOKEN",
-    "account_id": "YOUR_ACCOUNT_ID",
-    "kv_namespace_id": "YOUR_NAMESPACE_ID",
-    "kv_namespace": "YOUR_NAMESPACE_NAME"
-  }'
+# Turn redirect ON
+curl -X POST "$UPDATE_ENDPOINT" \
+  -H "Content-Type: application/json" \
+  -d '{"value": "ON", "updated_by": "admin", "reason": "Maintenance"}'
+
+# Get current status
+curl "$(terraform output -raw get_redirect_status_endpoint)"
 ```
 
-### 4. Test It
+### 4. Test Real-Time Notifications
 
 ```bash
-# Get function name
-FUNCTION_NAME=$(terraform output -raw lambda_function_name)
+# Terminal 1: Connect to SSE stream
+curl -N -H "Accept: text/event-stream" "$(terraform output -raw sse_events_endpoint)"
 
-# Test the function
-aws lambda invoke \
-  --function-name "$FUNCTION_NAME" \
-  --payload '{"max_keys": 10}' \
-  response.json
+# Terminal 2: Update status
+curl -X POST "$(terraform output -raw update_redirect_status_endpoint)" \
+  -H "Content-Type: application/json" \
+  -d '{"value": "OFF", "updated_by": "test"}'
 
-# Check results
-cat response.json
+# Terminal 1 will show the update immediately
 ```
 
 ## What Gets Created
 
-- Lambda function (cloudflare-data-sync)
-- DynamoDB table (cloudflare-kv-data)
-- Secrets Manager secret (cloudflare-kv-credentials)
+- Update API Lambda (redirect-status-update)
+- Notification Lambda (cloudflare-notification-handler)
+- SSE Endpoint Lambda (cloudflare-sse-endpoint)
+- DynamoDB table with Streams (cloudflare-kv-data-with-stream)
+- SSE Messages table (cloudflare-sse-messages)
+- API Gateways for Update and SSE endpoints
 - CloudWatch logs, metrics, and dashboard
 - IAM roles and policies
+- (Optional) Legacy Cloudflare sync Lambda
 
 ## Monitoring
 
@@ -83,7 +84,14 @@ terraform output cloudwatch_dashboard_url
 
 View logs:
 ```bash
-aws logs tail "/aws/lambda/cloudflare-data-sync" --follow
+# Update API logs
+aws logs tail "/aws/lambda/redirect-status-update" --follow
+
+# Notification logs
+aws logs tail "/aws/lambda/cloudflare-notification-handler" --follow
+
+# SSE endpoint logs
+aws logs tail "/aws/lambda/cloudflare-sse-endpoint" --follow
 ```
 
 ## Configuration (Optional)
@@ -92,6 +100,31 @@ Edit `terraform.tfvars` to customize:
 - `lambda_timeout`: Execution timeout (default: 300 seconds)
 - `lambda_memory_size`: Memory allocation (default: 512 MB)
 - `alert_email`: Email for CloudWatch alarms (optional)
+
+## Optional: Legacy Cloudflare Sync
+
+If you need to sync from Cloudflare KV (for initial migration):
+
+```bash
+# Get secret name
+SECRET_NAME=$(terraform output -raw secrets_manager_secret_name)
+
+# Add Cloudflare credentials
+aws secretsmanager update-secret \
+  --secret-id "$SECRET_NAME" \
+  --secret-string '{
+    "api_token": "YOUR_CLOUDFLARE_API_TOKEN",
+    "account_id": "YOUR_ACCOUNT_ID",
+    "kv_namespace_id": "YOUR_NAMESPACE_ID",
+    "kv_namespace": "YOUR_NAMESPACE_NAME"
+  }'
+
+# Run sync
+aws lambda invoke \
+  --function-name "$(terraform output -raw lambda_function_name)" \
+  --payload '{}' \
+  response.json
+```
 
 ## Cleanup
 
@@ -102,5 +135,6 @@ terraform destroy
 ## Need Help?
 
 - See `README.md` for detailed documentation
-- See `DEPLOYMENT.md` for troubleshooting
+- See `SYSTEM_OVERVIEW.md` for architecture details
+- See `ARCHITECTURE_CHANGE.md` for migration info
 - Check CloudWatch logs for errors

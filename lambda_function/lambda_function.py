@@ -1,11 +1,16 @@
 """
 AWS Lambda function for syncing Cloudflare KV data to DynamoDB.
 
+LEGACY/OPTIONAL: This Lambda function is now optional and used only for initial data migration
+or backup purposes. The primary system uses DynamoDB as the source of truth with the Update API.
+
 This module provides the main entry point for the Lambda function that:
 1. Retrieves Cloudflare API credentials from AWS Secrets Manager
 2. Fetches data from Cloudflare KV API
 3. Transforms and stores the data in DynamoDB
 4. Returns execution summary with metrics
+
+For normal operations, use the Update API Lambda instead (update_lambda/lambda_function.py).
 """
 
 import json

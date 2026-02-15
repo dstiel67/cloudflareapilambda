@@ -8,10 +8,9 @@ This project now includes a comprehensive build system that automatically detect
 
 | Script | Platform | Use Case | Features |
 |--------|----------|----------|----------|
-| `build.sh` | Universal | **Recommended** | Auto-detects OS, calls optimal script |
-| `build_lambda_linux.sh` | Linux | Performance | Linux-optimized, maximum compression |
-| `build_lambda.sh` | Cross-platform | Compatibility | Windows/Unix compatible |
-| `build_lambda.bat` | Windows | Native | Command Prompt/PowerShell |
+| `build.sh` | Universal | **Recommended** | Auto-detects OS, builds ALL Lambda functions |
+| `build_all.bat` | Windows | Native Windows | Builds all functions, 7z/PowerShell fallback |
+| Individual scripts | Platform-specific | Single function | Build specific Lambda functions only |
 
 ## Usage Recommendations
 
@@ -19,17 +18,11 @@ This project now includes a comprehensive build system that automatically detect
 ```bash
 ./build.sh
 ```
-This is the recommended approach as it automatically detects your OS and uses the best script.
-
-### For Linux Servers/CI/CD
-```bash
-./build_lambda_linux.sh
-```
-Use this for Linux environments where you want maximum optimization.
+This is the recommended approach as it automatically detects your OS and builds all Lambda functions.
 
 ### For Windows Users Without Git Bash
 ```cmd
-build_lambda.bat
+build_all.bat
 ```
 Use this if you prefer Command Prompt or PowerShell.
 
@@ -37,7 +30,13 @@ Use this if you prefer Command Prompt or PowerShell.
 ```bash
 terraform apply
 ```
-Terraform automatically builds the package when source files change.
+Terraform automatically builds all packages when source files change.
+
+### For Individual Function Builds
+Use the specific build scripts when you only need to rebuild one function:
+- Main Lambda: `build_lambda.sh` / `build_lambda.bat`
+- Notification Lambda: `build_notification_lambda.sh` / `build_notification_lambda.bat`
+- SSE Lambda: `build_sse_lambda.sh` / `build_sse_lambda.bat`
 
 ## Build Script Features Comparison
 
@@ -100,10 +99,12 @@ All build scripts perform these optimizations:
 
 ## Output
 
-All scripts create:
-- `lambda_function.zip` - Deployment package (~33-34MB)
-- Package size reporting
-- Build success confirmation
+All scripts create these deployment packages:
+- `lambda_function.zip` - Main sync Lambda (~33-34MB)
+- `notification_lambda.zip` - Notification handler (~15MB)
+- `sse_lambda.zip` - SSE endpoint (~15MB)
+- Package size reporting for each function
+- Build success confirmation for all functions
 
 ## Error Handling
 

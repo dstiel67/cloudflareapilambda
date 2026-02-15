@@ -15,58 +15,43 @@ This project includes multiple build scripts to accommodate different operating 
 
 **Features:**
 - Automatically detects your operating system
+- Builds ALL Lambda functions (main, notification, SSE)
 - Calls the optimal build script for your platform
-- Linux → `build_lambda_linux.sh`
-- macOS → `build_lambda.sh`
-- Windows → `build_lambda.sh`
+- Linux → uses Linux-optimized scripts
+- macOS/Windows → uses cross-platform scripts
+- Comprehensive build summary and error reporting
 
-### 2. `build_lambda_linux.sh` (Linux Optimized)
-
-**Platforms:** Linux distributions
-**Requirements:** bash, python3/pip3, zip
-
-```bash
-./build_lambda_linux.sh
-```
-
-**Features:**
-- Linux-specific optimizations
-- Maximum compression (-9 flag)
-- Enhanced cleanup of unnecessary files
-- Package size validation
-- Optimized for CI/CD environments
-
-### 3. `build_lambda.sh` (Cross-Platform)
-
-**Platforms:** Unix, Linux, macOS, Windows with Git Bash
-**Requirements:** bash, python3/pip3, zip or 7z
-
-```bash
-./build_lambda.sh
-```
-
-**Features:**
-- Auto-detects Windows vs Unix environment
-- Tries multiple Python commands (python, python3, py)
-- Prefers 7z on Windows, zip on Unix
-- Cross-platform file size reporting
-- Comprehensive error handling
-
-### 4. `build_lambda.bat` (Windows Native)
+### 2. `build_all.bat` (Windows Universal)
 
 **Platforms:** Windows Command Prompt, PowerShell
 **Requirements:** python/pip, 7z or PowerShell
 
 ```cmd
-build_lambda.bat
+build_all.bat
 ```
 
 **Features:**
-- Native Windows batch file
-- Tries multiple Python commands (python, python3, py)
+- Native Windows batch file for all Lambda functions
+- Builds main, notification, and SSE Lambda functions
 - Uses 7z if available, falls back to PowerShell compression
-- Windows-specific file operations
-- Pauses at end for user review
+- Comprehensive build summary and error reporting
+
+### 3. Individual Lambda Build Scripts
+
+#### Main Lambda Function
+- `build_lambda_linux.sh` (Linux optimized)
+- `build_lambda.sh` (Cross-platform)
+- `build_lambda.bat` (Windows)
+
+#### Notification Lambda Function
+- `build_notification_lambda_linux.sh` (Linux optimized)
+- `build_notification_lambda.sh` (Cross-platform)
+- `build_notification_lambda.bat` (Windows)
+
+#### SSE Lambda Function
+- `build_sse_lambda_linux.sh` (Linux optimized)
+- `build_sse_lambda.sh` (Cross-platform)
+- `build_sse_lambda.bat` (Windows)
 
 ## Quick Start
 
@@ -74,50 +59,49 @@ build_lambda.bat
 ```bash
 ./build.sh
 ```
-*Automatically detects your OS and uses the optimal build script*
+*Automatically detects your OS and builds ALL Lambda functions using optimal scripts*
 
 ### Platform-Specific Approaches
 
 #### Linux Users (Optimized)
 ```bash
-./build_lambda_linux.sh
+./build.sh  # Builds all functions with Linux optimization
 ```
 
 #### Windows Users
 1. **With Git Bash (Recommended):**
    - Install [Git for Windows](https://git-scm.com/download/win)
    - Install [7-Zip](https://www.7-zip.org/)
-   - Run: `./build.sh` or `./build_lambda.sh`
+   - Run: `./build.sh`
 
 2. **With Command Prompt:**
    - Install [7-Zip](https://www.7-zip.org/) (optional but recommended)
-   - Run: `build_lambda.bat`
+   - Run: `build_all.bat`
 
 #### Unix/macOS Users
 ```bash
 ./build.sh
-```
-or
-```bash
-./build_lambda.sh
 ```
 
 ### Automatic with Terraform
 ```bash
 terraform apply
 ```
-*Terraform automatically builds the package using the appropriate script*
+*Terraform automatically builds all packages using the appropriate scripts*
 
 ## What the Scripts Do
 
-1. **Clean up** previous builds
-2. **Create** temporary `lambda_package` directory
-3. **Copy** Lambda function code (`*.py` files and `src/` directory)
-4. **Install** Python dependencies from `requirements.txt`
+1. **Clean up** previous builds for all Lambda functions
+2. **Create** temporary package directories (`lambda_package`, `notification_package`, `sse_package`)
+3. **Copy** respective Lambda function code (`*.py` files and directories)
+4. **Install** Python dependencies from each `requirements.txt`
 5. **Remove** unnecessary files (tests, cache, docs, metadata)
-6. **Create** `lambda_function.zip` deployment package
+6. **Create** deployment packages:
+   - `lambda_function.zip` - Main sync Lambda (~33-34MB)
+   - `notification_lambda.zip` - Notification handler (~15MB)
+   - `sse_lambda.zip` - SSE endpoint (~15MB)
 7. **Clean up** temporary files
-8. **Report** package size and completion
+8. **Report** package sizes and completion status
 
 ## Output
 

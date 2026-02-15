@@ -1,0 +1,86 @@
+{
+  "single_app_activate": {
+    "event_type": "failover",
+    "timestamp": "2024-01-15T10:30:00Z",
+    "applications": [
+      {
+        "app_id": "app1",
+        "failover_status": "Y",
+        "reason": "Primary datacenter unavailable"
+      }
+    ],
+    "triggered_by": "ansible_monitoring",
+    "severity": "critical"
+  },
+  
+  "single_app_deactivate": {
+    "event_type": "failover",
+    "timestamp": "2024-01-15T11:00:00Z",
+    "applications": [
+      {
+        "app_id": "app1",
+        "failover_status": "N",
+        "reason": "Primary datacenter restored"
+      }
+    ],
+    "triggered_by": "ansible_monitoring",
+    "severity": "info"
+  },
+  
+  "multi_app_activate": {
+    "event_type": "failover",
+    "timestamp": "2024-01-15T10:30:00Z",
+    "applications": [
+      {
+        "app_id": "app1",
+        "failover_status": "Y",
+        "reason": "Datacenter failure"
+      },
+      {
+        "app_id": "app2",
+        "failover_status": "Y",
+        "reason": "Datacenter failure"
+      },
+      {
+        "app_id": "app3",
+        "failover_status": "Y",
+        "reason": "Datacenter failure"
+      }
+    ],
+    "triggered_by": "ansible_monitoring",
+    "severity": "critical"
+  },
+  
+  "partial_failover": {
+    "event_type": "failover",
+    "timestamp": "2024-01-15T10:30:00Z",
+    "applications": [
+      {
+        "app_id": "app1",
+        "failover_status": "Y",
+        "reason": "Scheduled maintenance"
+      },
+      {
+        "app_id": "app2",
+        "failover_status": "N",
+        "reason": "Normal operation"
+      }
+    ],
+    "triggered_by": "maintenance_team",
+    "severity": "warning"
+  },
+  
+  "load_test_event": {
+    "event_type": "failover",
+    "timestamp": "2024-01-15T10:30:00Z",
+    "applications": [
+      {
+        "app_id": "load-test-app",
+        "failover_status": "Y",
+        "reason": "Load testing"
+      }
+    ],
+    "triggered_by": "load_test",
+    "severity": "info"
+  }
+}

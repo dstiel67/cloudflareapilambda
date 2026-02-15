@@ -1,23 +1,41 @@
-# Cloudflare KV to DynamoDB Sync - Lambda Function
+# DynamoDB-Based Redirect Status Management with Real-Time Notifications
 
-This project provides an AWS Lambda function that synchronizes data from Cloudflare KV (Key-Value) storage to Amazon DynamoDB. The infrastructure is fully managed using Terraform.
+This project provides an AWS Lambda-based system for managing redirect status in DynamoDB with real-time web client notifications via Server-Sent Events (SSE).
 
 ## Architecture
 
-- **Lambda Function**: Executes the Cloudflare KV data sync
-- **DynamoDB Table**: Stores the synchronized Cloudflare data with TTL support
-- **Secrets Manager**: Securely stores Cloudflare API credentials
+- **Update Lambda Function**: API endpoint to update redirect status in DynamoDB
+- **DynamoDB Table**: Source of truth for redirect status with TTL support and Streams enabled
+- **Notification Lambda**: Processes DynamoDB Stream events and sends SSE notifications
+- **SSE Endpoint Lambda**: Provides Server-Sent Events endpoint for real-time notifications
+- **SSE Messages Table**: Temporary storage for Server-Sent Event messages
+- **API Gateway**: Provides HTTP endpoints for both update and SSE operations
+- **Dead Letter Queues**: SQS queues for capturing failed Lambda invocations
 - **IAM Roles & Policies**: Provides necessary permissions with least privilege
 - **CloudWatch Monitoring**: Logs, metrics, custom dashboards, and alarms
 - **X-Ray Tracing**: Performance monitoring and debugging
+- **Secrets Manager** (optional): Only needed for legacy Cloudflare sync - not used by primary system
 
 ## Features
 
-### Data Synchronization
-- Fetches a specific key value from Cloudflare KV namespace
-- Defaults to retrieving 'redirect-all-users-to-essentials' key
+### Redirect Status Management
+- Update redirect status via REST API (ON/OFF)
+- Get current redirect status
+- Audit trail with timestamps and user tracking
+- Optional reason field for updates
+- DynamoDB as single source of truth
+
+### Real-Time Notifications
+- DynamoDB Streams trigger notifications when status changes
+- Server-Sent Events (SSE) endpoint for real-time web client updates
+- Angular service and component examples provided
+- Automatic reconnection and error handling
+- CORS-enabled API Gateway endpoints
+
+### Legacy Cloudflare Sync (Optional)
+- Original Lambda function for syncing from Cloudflare KV
+- Can be used for initial data migration
 - Supports custom key retrieval via event parameter
-- Transforms data for DynamoDB storage
 - Comprehensive error handling
 
 ### Performance & Reliability
@@ -33,54 +51,60 @@ This project provides an AWS Lambda function that synchronizes data from Cloudfl
 - Configurable alarms for errors, duration, and throttles
 - X-Ray distributed tracing
 - Detailed execution statistics
+- Dead Letter Queues for failed invocations
+- Automatic alerts on DLQ messages
 
 ## Prerequisites
 
 1. **AWS CLI** configured with appropriate credentials
 2. **Terraform** installed (version 1.0 or later)
-3. **Cloudflare API credentials** with KV namespace access:
+3. **Python 3.11** for local testing (optional)
+4. **Cloudflare API credentials** (optional - only needed for legacy sync):
    - API Token
    - Account ID
    - KV Namespace ID
    - KV Namespace Name
-4. **Python 3.11** for local testing (optional)
 
 ## Quick Start
 
-### 1. Build Lambda Package
+### 1. Build Lambda Packages
 
-The Lambda function requires Python dependencies to be packaged. Choose the method that works best for your system:
+The system requires multiple Lambda functions to be packaged. Choose the method that works best for your system:
 
 **Option 1: Universal Build Script (Recommended)**
 ```bash
 ./build.sh
 ```
-*Automatically detects your OS and uses the optimal build script*
+*Automatically detects your OS and builds ALL Lambda functions using optimal scripts*
 
 **Option 2: Platform-Specific Scripts**
 
-*Linux (optimized):*
+*Linux (optimized for all functions):*
 ```bash
-./build_lambda_linux.sh
+./build.sh  # Uses Linux-optimized scripts automatically
 ```
 
 *Unix/macOS/Windows with Git Bash:*
 ```bash
-./build_lambda.sh
+./build.sh  # Uses cross-platform scripts automatically
 ```
 
 *Windows (Command Prompt/PowerShell):*
 ```cmd
-build_lambda.bat
+build_all.bat
 ```
 
 **Option 3: Automatic with Terraform**
 ```bash
 terraform apply
 ```
-*Terraform will automatically build the package using the appropriate script*
+*Terraform will automatically build all packages using the appropriate scripts*
 
-This creates `lambda_function.zip` with all dependencies included.
+This creates deployment packages for all Lambda functions:
+- `lambda_function.zip` - Legacy Cloudflare sync function (~33-34MB)
+- `notification_lambda.zip` - Notification handler (~15MB)  
+- `sse_lambda.zip` - SSE endpoint (~15MB)
+- `update_lambda.zip` - Update API (~15MB)
 
 **Requirements:**
 - Python 3.11+ with pip
@@ -125,9 +149,9 @@ terraform apply
 
 *Note: Terraform automatically detects your operating system and runs the appropriate build script when Lambda source files change.*
 
-### 4. Configure Cloudflare Credentials
+### 4. Configure Cloudflare Credentials (Optional - for legacy sync)
 
-After deployment, update the Secrets Manager secret with your actual Cloudflare credentials:
+If you plan to use the legacy Cloudflare KV sync function, update the Secrets Manager secret with your actual Cloudflare credentials:
 
 ```bash
 # Get the secret name from Terraform output
@@ -144,88 +168,196 @@ aws secretsmanager update-secret \
   }'
 ```
 
-### 5. Test the Lambda Function
+### 5. Retrieve API Key
+
+The Update API requires authentication via API key:
 
 ```bash
-# Get the function name from Terraform output
-FUNCTION_NAME=$(terraform output -raw lambda_function_name)
+# Get the API key (sensitive output)
+API_KEY=$(terraform output -raw update_api_key_value)
 
-# Test with default key (redirect-all-users-to-essentials)
-aws lambda invoke \
-  --function-name "$FUNCTION_NAME" \
-  --payload '{}' \
-  response.json
-
-# Test with a custom key
-aws lambda invoke \
-  --function-name "$FUNCTION_NAME" \
-  --payload '{"key_name": "classic-domain"}' \
-  response.json
-
-# Check the response
-cat response.json
+# Or view instructions
+terraform output update_api_key_instructions
 ```
 
-## Lambda Function Usage
+### 6. Update Redirect Status
 
-### Invocation Parameters
+The primary way to manage redirect status is through the Update API:
 
-The Lambda function accepts the following optional parameter:
+```bash
+# Get the update endpoint and API key from Terraform output
+UPDATE_ENDPOINT=$(terraform output -raw update_redirect_status_endpoint)
+API_KEY=$(terraform output -raw update_api_key_value)
 
-```json
-{
-  "key_name": "redirect-all-users-to-essentials"  // Specific key to fetch (default: 'redirect-all-users-to-essentials')
+# Turn redirect ON
+curl -X POST "$UPDATE_ENDPOINT" \
+  -H "Content-Type: application/json" \
+  -H "x-api-key: $API_KEY" \
+  -d '{"value": "ON", "updated_by": "admin", "reason": "Maintenance mode"}'
+
+# Turn redirect OFF
+curl -X POST "$UPDATE_ENDPOINT" \
+  -H "Content-Type: application/json" \
+  -H "x-api-key: $API_KEY" \
+  -d '{"value": "OFF", "updated_by": "admin", "reason": "Maintenance complete"}'
+
+# Get current status
+curl -H "x-api-key: $API_KEY" "$(terraform output -raw get_redirect_status_endpoint)"
+```
+
+### 7. Test Real-Time Notifications
+
+```bash
+# In one terminal, connect to SSE endpoint
+curl -N -H "Accept: text/event-stream" "$(terraform output -raw sse_events_endpoint)"
+
+# In another terminal, update the status
+API_KEY=$(terraform output -raw update_api_key_value)
+curl -X POST "$(terraform output -raw update_redirect_status_endpoint)" \
+  -H "Content-Type: application/json" \
+  -H "x-api-key: $API_KEY" \
+  -d '{"value": "ON", "updated_by": "test"}'
+
+# You should see the update appear in the SSE stream immediately
+```
+
+## Server-Sent Events (SSE) Integration
+
+### Real-Time Notifications
+
+The system includes a real-time notification system that sends updates to web clients when the 'redirect-all-users-to-essentials' value changes:
+
+**SSE Endpoint:**
+```bash
+# Get the SSE endpoint URL
+terraform output sse_events_endpoint
+```
+
+**Health Check:**
+```bash
+# Check SSE endpoint health
+curl "$(terraform output -raw sse_health_endpoint)"
+```
+
+### Angular Integration
+
+Complete Angular integration examples are provided in the `angular-client-example/` directory:
+
+- `redirect-notification.service.ts` - Service for managing SSE connections
+- `redirect-status.component.ts` - Component for displaying redirect status
+- `README.md` - Detailed integration instructions
+
+**Quick Angular Setup:**
+```typescript
+import { RedirectNotificationService } from './redirect-notification.service';
+
+// In your component
+constructor(private redirectService: RedirectNotificationService) {}
+
+ngOnInit() {
+  this.redirectService.connect();
+  
+  this.redirectService.getRedirectUpdates().subscribe(update => {
+    console.log('Redirect status changed:', update);
+    // Handle the update in your UI
+  });
 }
 ```
 
-### Response Format
+### Testing SSE Connection
 
-Successful response:
+Test the SSE endpoint directly:
+```bash
+# Connect to SSE stream
+curl -N -H "Accept: text/event-stream" "$(terraform output -raw sse_events_endpoint)"
 
+# In another terminal, trigger an update
+aws lambda invoke --function-name cloudflare-data-sync --payload '{}' response.json
+```
+
+You should see real-time events in the SSE stream when the redirect status changes.
+
+## Update API Usage
+
+### Update Redirect Status
+
+The Update API is the primary interface for managing redirect status:
+
+**Endpoint:** `POST /redirect-status`
+
+**Request Body:**
+```json
+{
+  "value": "ON",              // Required: "ON" or "OFF"
+  "updated_by": "admin",      // Optional: Who made the change
+  "reason": "Maintenance"     // Optional: Why the change was made
+}
+```
+
+**Response:**
 ```json
 {
   "success": true,
+  "message": "Redirect status updated to ON",
   "data": {
-    "message": "Cloudflare data sync completed successfully for key 'redirect-all-users-to-essentials'",
-    "key_name": "redirect-all-users-to-essentials",
-    "processing_summary": {
-      "key_retrieved": true,
-      "record_processed": true,
-      "record_stored": true,
-      "record_failed": false
-    },
-    "lambda_optimizations": {
-      "cold_start_detected": false,
-      "optimization_time_ms": 5,
-      "connection_pool_stats": {...},
-      "timeout_management": {...}
-    }
-  },
-  "statistics": {
-    "execution_time_ms": 1234,
-    "cloudflare_api_calls": 1,
-    "dynamodb_writes": 1,
-    "records_processed": 1,
-    "records_stored": 1,
-    "success_rate": 1.0
+    "key": "redirect-all-users-to-essentials",
+    "value": "ON",
+    "timestamp": "2024-01-15T10:30:00Z",
+    "updated_by": "admin"
   }
 }
 ```
 
-Error response:
+### Get Current Status
 
+**Endpoint:** `GET /redirect-status`
+
+**Response:**
 ```json
 {
-  "success": false,
-  "error": {
-    "type": "API_ERROR",
-    "message": "Error description",
+  "success": true,
+  "data": {
+    "key": "redirect-all-users-to-essentials",
+    "value": "ON",
     "timestamp": "2024-01-15T10:30:00Z",
-    "is_retryable": true,
-    "severity": "error"
-  },
-  "statistics": {...}
+    "updated_by": "admin",
+    "source": "api"
+  }
 }
+```
+
+### API Authentication
+
+All Update API endpoints (except health check) require an API key for authentication. Include the API key in the `x-api-key` header:
+
+```bash
+# Retrieve your API key
+API_KEY=$(terraform output -raw update_api_key_value)
+```
+
+### Examples
+
+```bash
+# Get API key
+API_KEY=$(terraform output -raw update_api_key_value)
+
+# Turn redirect ON
+curl -X POST "$(terraform output -raw update_redirect_status_endpoint)" \
+  -H "Content-Type: application/json" \
+  -H "x-api-key: $API_KEY" \
+  -d '{"value": "ON", "updated_by": "admin", "reason": "Scheduled maintenance"}'
+
+# Turn redirect OFF
+curl -X POST "$(terraform output -raw update_redirect_status_endpoint)" \
+  -H "Content-Type: application/json" \
+  -H "x-api-key: $API_KEY" \
+  -d '{"value": "OFF", "updated_by": "admin", "reason": "Maintenance complete"}'
+
+# Get current status
+curl -H "x-api-key: $API_KEY" "$(terraform output -raw get_redirect_status_endpoint)"
+
+# Health check (no API key required)
+curl "$(terraform output -raw update_health_endpoint)"
 ```
 
 ## Monitoring
@@ -343,15 +475,26 @@ curl -X POST "$FUNCTION_URL" \
 ```
 .
 ├── lambda.tf                    # Terraform configuration for Lambda and infrastructure
+├── update_api.tf                # Update API infrastructure
+├── notification.tf              # SSE notification infrastructure
 ├── variables.tf                 # Terraform variable definitions
 ├── outputs.tf                   # Terraform outputs
 ├── terraform.tfvars            # Your configuration values
-├── lambda_function/
+├── update_lambda/
+│   ├── lambda_function.py      # Update API handler
+│   └── requirements.txt        # Python dependencies
+├── notification_lambda/
+│   ├── lambda_function.py      # Notification handler
+│   └── requirements.txt        # Python dependencies
+├── sse_lambda/
+│   ├── lambda_function.py      # SSE endpoint handler
+│   └── requirements.txt        # Python dependencies
+├── lambda_function/            # Legacy Cloudflare sync (optional)
 │   ├── lambda_function.py      # Main Lambda handler
 │   ├── requirements.txt        # Python dependencies
 │   ├── src/
 │   │   ├── config.py          # Configuration management
-│   │   ├── cloudflare_client.py  # Cloudflare API client
+│   │   ├── cloudflare_client.py  # Cloudflare API client (legacy)
 │   │   ├── data_transformer.py   # Data transformation logic
 │   │   ├── dynamodb_client.py    # DynamoDB operations
 │   │   ├── error_handler.py      # Error handling and logging
@@ -360,10 +503,16 @@ curl -X POST "$FUNCTION_URL" \
 │       ├── test_config.py
 │       ├── test_integration.py
 │       └── test_lambda_function.py
+├── angular-client-example/
+│   ├── redirect-notification.service.ts  # SSE service
+│   ├── redirect-update.service.ts        # Update API service
+│   └── redirect-status.component.ts      # UI component
 └── DEPLOYMENT.md               # Detailed deployment guide
 ```
 
 ### Running Tests
+
+Tests are available for the legacy Cloudflare sync Lambda:
 
 ```bash
 cd lambda_function
@@ -372,7 +521,7 @@ python -m pytest tests/ -v
 
 All 26 tests should pass, covering:
 - Configuration management
-- Cloudflare API integration
+- Cloudflare API integration (legacy)
 - DynamoDB operations
 - Error handling and recovery
 - Lambda optimizations
@@ -446,11 +595,12 @@ All 26 tests should pass, covering:
 
 ## Security Considerations
 
-- **Secrets Management**: Cloudflare credentials stored securely in AWS Secrets Manager
-- **IAM Permissions**: Lambda function has minimal required permissions (least privilege)
+- **API Authentication**: Update API secured with API keys and usage plans (rate limiting: 1000 req/s, quota: 1M req/month)
+- **Secrets Management**: Cloudflare credentials stored securely in AWS Secrets Manager (if using legacy sync)
+- **IAM Permissions**: Lambda functions have minimal required permissions (least privilege)
 - **Encryption**: DynamoDB encryption at rest enabled by default
 - **Network Security**: Consider VPC configuration for additional isolation (optional)
-- **API Token**: Use scoped Cloudflare API tokens with only KV namespace access
+- **API Key Security**: Store API keys securely, rotate regularly, never commit to version control
 
 ## Cost Optimization
 
@@ -496,11 +646,17 @@ terraform destroy
 
 ## Additional Resources
 
+- **[API Authentication Guide](API_AUTHENTICATION.md)** - Comprehensive guide to API key authentication
+- **[API Authentication Summary](API_AUTHENTICATION_SUMMARY.md)** - Quick reference for authentication implementation
+- **[Dead Letter Queue Guide](DLQ_GUIDE.md)** - Complete guide to DLQ monitoring and troubleshooting
+- **[AWS Cost Estimate](AWS_COST_ESTIMATE.md)** - Detailed monthly cost breakdown
 - [AWS Lambda Documentation](https://docs.aws.amazon.com/lambda/)
 - [Amazon DynamoDB Documentation](https://docs.aws.amazon.com/dynamodb/)
 - [Cloudflare KV API Documentation](https://developers.cloudflare.com/api/operations/workers-kv-namespace-list-a-namespace'-s-keys)
 - [Terraform AWS Provider](https://registry.terraform.io/providers/hashicorp/aws/latest/docs)
 - [AWS Secrets Manager](https://docs.aws.amazon.com/secretsmanager/)
+- [AWS API Gateway API Keys](https://docs.aws.amazon.com/apigateway/latest/developerguide/api-gateway-api-key-source.html)
+- [Amazon SQS Dead Letter Queues](https://docs.aws.amazon.com/AWSSimpleQueueService/latest/SQSDeveloperGuide/sqs-dead-letter-queues.html)
 
 ## License
 
@@ -511,5 +667,6 @@ This project is provided as-is for use in your AWS infrastructure.
 For issues or questions:
 1. Check CloudWatch Logs for error details
 2. Review X-Ray traces for performance issues
-3. Verify Cloudflare API credentials and permissions
+3. Verify IAM permissions and resource configurations
 4. Ensure DynamoDB table is accessible
+5. For legacy sync: Verify Cloudflare API credentials if using Cloudflare sync
