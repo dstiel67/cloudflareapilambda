@@ -96,51 +96,117 @@ This project provides a complete solution for tracking and broadcasting failover
 
 ## Components
 
-### 1. Ansible Script (Failover Control)
-- **Purpose**: Initiates failover events based on infrastructure monitoring or manual triggers
-- **Trigger**: Infrastructure failure detection, manual failover, scheduled maintenance
-- **Output**: Sends failover event to Kafka with application identifiers and status
+### Core Components (Always Deployed)
 
-### 2. Kafka (Event Stream)
-- **Purpose**: Message broker for failover events
-- **Key Feature**: Decouples failover control from status updates
-- **Consumers**: Lambda function subscribes to failover events
+#### 1. Update API Lambda
+- **Purpose**: REST API endpoint for updating redirect/failover status
+- **Trigger**: API Gateway HTTP requests
+- **Key Feature**: API key authentication, audit trail
+- **Output**: Updates DynamoDB with new status
 
-### 3. Lambda Function (`redirect-status-update` or similar)
-- **Purpose**: Processes Kafka events and updates DynamoDB
-- **Trigger**: Kafka messages containing failover events
-- **Key Feature**: Validates and transforms failover data
-- **Output**: Updates DynamoDB with new failover flags
+#### 2. DynamoDB Table (Source of Truth)
+- **Purpose**: Stores current redirect/failover status
+- **Schema**: Key-value pairs with timestamps and metadata
+- **Key Feature**: Single source of truth, Streams enabled
+- **Billing**: Pay-per-request (on-demand)
 
-### 4. DynamoDB Table (Source of Truth)
-- **Purpose**: Stores current failover status for all applications
-- **Schema**: Key-value pairs like `App1_Failover: "Y"`, `App2_Failover: "Y"`
-- **Key Feature**: Single source of truth for failover state
-- **Polling**: Read Flags Service polls this table
+#### 3. DynamoDB Streams
+- **Purpose**: Captures all changes to DynamoDB table
+- **Trigger**: Any INSERT, MODIFY, or REMOVE operation
+- **Key Feature**: Near real-time change data capture
+- **Output**: Triggers Notification Lambda
 
-### 5. Read Flags Service
+#### 4. Notification Lambda
+- **Purpose**: Processes DynamoDB Stream events
+- **Trigger**: DynamoDB Streams
+- **Key Feature**: Transforms stream records to SSE format
+- **Output**: Writes to SSE Messages Table
+
+#### 5. SSE Endpoint Lambda
+- **Purpose**: Provides Server-Sent Events endpoint
+- **Trigger**: API Gateway HTTP requests (long-polling)
+- **Key Feature**: Real-time push notifications to web clients
+- **Output**: Streams events to connected clients
+
+#### 6. SSE Messages Table
+- **Purpose**: Temporary storage for Server-Sent Event messages
+- **TTL**: 1 hour (automatic cleanup)
+- **Key Feature**: Decouples notification generation from delivery
+- **Access**: Read by SSE Endpoint Lambda
+
+#### 7. Kafka Consumer Lambda
+- **Purpose**: Processes Kafka failover events and updates DynamoDB
+- **Trigger**: Kafka messages (when configured)
+- **Key Feature**: Validates and transforms Kafka events
+- **Output**: Updates DynamoDB with failover flags
+- **Status**: Deployed but inactive until Kafka cluster is configured
+
+#### 8. API Gateways
+- **Purpose**: HTTP endpoints for Update API and SSE
+- **Key Feature**: CORS enabled, API key authentication
+- **Endpoints**: 
+  - Update API: POST/GET /redirect-status
+  - SSE API: GET /events
+
+#### 9. Dead Letter Queues (DLQs)
+- **Purpose**: Captures failed Lambda invocations
+- **Key Feature**: Automatic alerting on message arrival
+- **Monitoring**: CloudWatch alarms
+
+#### 10. CloudWatch Monitoring
+- **Purpose**: Logs, metrics, dashboards, and alarms
+- **Key Feature**: Custom dashboards, configurable alerts
+- **Retention**: 14 days for logs
+
+#### 11. X-Ray Tracing
+- **Purpose**: Performance monitoring and debugging
+- **Key Feature**: Distributed tracing across all Lambdas
+- **Access**: AWS X-Ray console
+
+### Optional Components (Pattern 2 Only)
+
+#### 12. Read Flags Service
 - **Purpose**: Polls DynamoDB for current failover flags
-- **Trigger**: Periodic polling (e.g., every 5-30 seconds)
+- **Trigger**: Periodic polling (5-30 seconds configurable)
 - **Key Feature**: Detects changes in failover status
 - **Output**: Updates Atom Store when flags change
+- **Deployment**: Docker, Kubernetes, or direct Python execution
+- **Status**: Optional - only needed for Pattern 2 (React/Atom Store)
 
-### 6. Failover Atom Store
-- **Purpose**: Reactive state container holding failover flags for all applications
-- **Technology**: Likely Recoil, Jotai, or similar Atom-based state management
-- **Structure**: 
-  - Store (Dark Blue): Container for all failover atoms
-  - Atoms (Light Blue): Individual reactive state for each app (App 1 Failover Flag, App 2 Failover Flag, etc.)
-- **Key Feature**: Provides reactive subscriptions for applications
+#### 13. Atom Store Server
+- **Purpose**: REST API and WebSocket server for React apps
+- **Technology**: Node.js/TypeScript
+- **Key Feature**: Real-time updates via WebSocket, reactive state management
+- **Deployment**: Docker, Kubernetes, or direct Node.js execution
+- **Status**: Optional - only needed for Pattern 2 (React/Atom Store)
 
-### 7. Applications (App 1, App 2, App N)
-- **Purpose**: Frontend applications that need to react to failover status
-- **Integration**: Subscribe to specific failover atoms
-- **Behavior**: Automatically re-render/update when subscribed atom changes
-- **Use Cases**: 
-  - Display failover banners
-  - Redirect users to backup systems
-  - Disable features during failover
-  - Show maintenance messages
+#### 14. Atom Store Library
+- **Purpose**: React/Recoil integration library
+- **Technology**: TypeScript, Recoil atoms
+- **Key Feature**: Provides hooks for subscribing to failover status
+- **Integration**: npm package for React applications
+- **Status**: Optional - only needed for Pattern 2 (React/Atom Store)
+
+### Legacy Components (Optional)
+
+#### 15. Cloudflare Sync Lambda
+- **Purpose**: One-time data migration from Cloudflare KV
+- **Trigger**: Manual invocation or scheduled
+- **Key Feature**: Syncs data from Cloudflare KV to DynamoDB
+- **Status**: Optional - only for legacy data migration
+- **Secrets**: Requires Cloudflare API credentials in Secrets Manager
+
+#### 16. Ansible Script (External)
+- **Purpose**: Initiates failover events based on infrastructure monitoring
+- **Trigger**: Infrastructure failure detection, manual failover
+- **Output**: Sends failover event to Kafka
+- **Status**: Optional - only for Pattern 2 with Kafka integration
+
+#### 17. Kafka Cluster (External)
+- **Purpose**: Message broker for failover events
+- **Key Feature**: Decouples failover control from status updates
+- **Consumers**: Kafka Consumer Lambda
+- **Status**: Optional - only for Pattern 2 deployments
 
 ## Data Flow
 

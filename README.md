@@ -1,140 +1,121 @@
-# DynamoDB-Based Redirect Status Management with Real-Time Notifications
+# Failover Status Management System with Atom Stores
 
-This project provides an AWS Lambda-based system for managing redirect status in DynamoDB with real-time web client notifications via Server-Sent Events (SSE).
+Complete failover status management system using Kafka, DynamoDB, and Atom Stores for real-time reactive state management in Angular applications.
+
+## Overview
+
+This project provides a production-ready solution for tracking and broadcasting failover status across multiple Angular applications. The system uses:
+
+- **Kafka** for event ingestion
+- **AWS Lambda** for event processing
+- **DynamoDB** as the source of truth
+- **Read Flags Service** for polling and change detection
+- **Atom Store** for reactive state management with WebSocket
+- **Angular Services** for seamless integration with RxJS Observables
+
+**Target Applications**: Angular applications using RxJS for reactive state management
+
+**Latency**: ~5-30 seconds end-to-end (configurable via polling interval)
 
 ## Architecture
 
-- **Update Lambda Function**: API endpoint to update redirect status in DynamoDB
-- **DynamoDB Table**: Source of truth for redirect status with TTL support and Streams enabled
-- **Notification Lambda**: Processes DynamoDB Stream events and sends SSE notifications
-- **SSE Endpoint Lambda**: Provides Server-Sent Events endpoint for real-time notifications
-- **SSE Messages Table**: Temporary storage for Server-Sent Event messages
-- **API Gateway**: Provides HTTP endpoints for both update and SSE operations
-- **Dead Letter Queues**: SQS queues for capturing failed Lambda invocations
-- **IAM Roles & Policies**: Provides necessary permissions with least privilege
-- **CloudWatch Monitoring**: Logs, metrics, custom dashboards, and alarms
+```
+Ansible → Kafka → Lambda → DynamoDB → Read Flags Service → Atom Store → Angular Apps
+```
+
+### Components
+
+#### AWS Infrastructure
+- **Kafka Consumer Lambda**: Processes Kafka failover events and updates DynamoDB
+- **DynamoDB Table**: Source of truth for failover status
+- **Dead Letter Queues**: Captures failed Lambda invocations
+- **CloudWatch Monitoring**: Logs, metrics, dashboards, and alarms
 - **X-Ray Tracing**: Performance monitoring and debugging
-- **Secrets Manager** (optional): Only needed for legacy Cloudflare sync - not used by primary system
+
+#### Application Layer
+- **Read Flags Service**: Polls DynamoDB and updates Atom Store when flags change
+- **Atom Store Server**: REST API and WebSocket server for Angular applications
+- **Atom Store Angular Service**: Angular service with RxJS integration for failover status
+
+#### External Components
+- **Kafka Cluster**: Message broker for failover events
+- **Ansible Scripts**: Initiates failover events based on infrastructure monitoring
+
+### Data Flow
+
+1. **Failover Trigger**: Ansible script detects infrastructure issue or receives manual trigger
+2. **Event Published**: Ansible sends failover event to Kafka
+3. **Lambda Consumes**: Kafka Consumer Lambda processes the message
+4. **DynamoDB Update**: Lambda validates and writes failover flags to DynamoDB
+5. **Polling**: Read Flags Service periodically polls DynamoDB for changes
+6. **Atom Update**: When flags change, Read Flags Service updates Atom Store
+7. **Reactive Propagation**: Angular apps subscribed via WebSocket automatically receive updates
+8. **UI Update**: Applications react to state changes (show banners, redirect, etc.)
 
 ## Features
 
-### Redirect Status Management
-- Update redirect status via REST API (ON/OFF)
-- Get current redirect status
-- Audit trail with timestamps and user tracking
-- Optional reason field for updates
+### Event-Driven Architecture
+- Kafka-based event ingestion for decoupled failover control
+- Lambda function for reliable event processing
 - DynamoDB as single source of truth
+- Automatic retry and error handling
 
-### Real-Time Notifications
-- DynamoDB Streams trigger notifications when status changes
-- Server-Sent Events (SSE) endpoint for real-time web client updates
-- Angular service and component examples provided
-- Automatic reconnection and error handling
-- CORS-enabled API Gateway endpoints
+### Reactive State Management
+- RxJS Observables for reactive state
+- Real-time updates via WebSocket
+- Automatic reconnection with exponential backoff
+- Type-safe TypeScript API
 
-### Legacy Cloudflare Sync (Optional)
-- Original Lambda function for syncing from Cloudflare KV
-- Can be used for initial data migration
-- Supports custom key retrieval via event parameter
-- Comprehensive error handling
-
-### Performance & Reliability
-- Connection pooling and reuse across invocations
-- Cold start optimization
-- Timeout management with early termination
-- Retry logic with exponential backoff
-- Rate limit handling
-
-### Monitoring & Observability
-- CloudWatch Logs with structured logging
-- Custom CloudWatch metrics and dashboards
-- Configurable alarms for errors, duration, and throttles
-- X-Ray distributed tracing
-- Detailed execution statistics
+### Scalability & Reliability
+- Horizontal scaling for Read Flags Service and Atom Store
+- DynamoDB on-demand billing (auto-scaling)
+- Lambda automatic scaling
 - Dead Letter Queues for failed invocations
-- Automatic alerts on DLQ messages
+- Comprehensive monitoring and alerting
+
+### Developer Experience
+- Simple Angular service: `getFailoverStatus('app1')`
+- Complete TypeScript types
+- Docker and Kubernetes deployment configs
+- Comprehensive documentation and examples
 
 ## Prerequisites
 
 1. **AWS CLI** configured with appropriate credentials
 2. **Terraform** installed (version 1.0 or later)
-3. **Python 3.11** for local testing (optional)
-4. **Cloudflare API credentials** (optional - only needed for legacy sync):
-   - API Token
-   - Account ID
-   - KV Namespace ID
-   - KV Namespace Name
+3. **Python 3.11+** for Lambda functions and Read Flags Service
+4. **Node.js 20+** for Atom Store Server
+5. **Docker** (optional, for containerized deployments)
+6. **Kubernetes cluster** (optional, for K8s deployment)
+7. **Kafka cluster** (managed or self-hosted)
+8. **Ansible 2.9+** (for failover triggers)
 
 ## Quick Start
 
-### 1. Build Lambda Packages
+### 1. Build Lambda Functions
 
-The system requires multiple Lambda functions to be packaged. Choose the method that works best for your system:
-
-**Option 1: Universal Build Script (Recommended)**
 ```bash
+# Build all Lambda functions
 ./build.sh
 ```
-*Automatically detects your OS and builds ALL Lambda functions using optimal scripts*
 
-**Option 2: Platform-Specific Scripts**
+This creates:
+- `kafka_consumer_lambda.zip` - Kafka event processor
 
-*Linux (optimized for all functions):*
-```bash
-./build.sh  # Uses Linux-optimized scripts automatically
-```
+### 2. Configure Terraform
 
-*Unix/macOS/Windows with Git Bash:*
-```bash
-./build.sh  # Uses cross-platform scripts automatically
-```
-
-*Windows (Command Prompt/PowerShell):*
-```cmd
-build_all.bat
-```
-
-**Option 3: Automatic with Terraform**
-```bash
-terraform apply
-```
-*Terraform will automatically build all packages using the appropriate scripts*
-
-This creates deployment packages for all Lambda functions:
-- `lambda_function.zip` - Legacy Cloudflare sync function (~33-34MB)
-- `notification_lambda.zip` - Notification handler (~15MB)  
-- `sse_lambda.zip` - SSE endpoint (~15MB)
-- `update_lambda.zip` - Update API (~15MB)
-
-**Requirements:**
-- Python 3.11+ with pip
-- For Windows: Either Git Bash with 7z, or Command Prompt with 7-Zip or PowerShell
-- For Unix/Linux: zip command
-
-### 2. Configure Variables
-
-Create or update `terraform.tfvars`:
+Create `terraform.tfvars`:
 
 ```hcl
-# AWS Configuration
 aws_region = "us-east-1"
-
-# Lambda Function Configuration
-lambda_function_name   = "cloudflare-data-sync"
-dynamodb_table_name    = "cloudflare-kv-data"
-cloudflare_secret_name = "cloudflare-kv-credentials"
-
-# Lambda Performance Settings
-lambda_timeout     = 300  # 5 minutes
-lambda_memory_size = 512  # MB
-
-# Monitoring (optional)
-alert_email = "your-email@example.com"  # Leave empty to disable alerts
+lambda_function_name = "failover-system"
+dynamodb_table_name = "failover-status"
+lambda_timeout = 300
+lambda_memory_size = 512
+alert_email = "your-email@example.com"  # Optional
 ```
 
-### 3. Deploy Infrastructure
-
-Terraform will automatically build the Lambda package and deploy:
+### 3. Deploy AWS Infrastructure
 
 ```bash
 # Initialize Terraform
@@ -143,221 +124,399 @@ terraform init
 # Review the deployment plan
 terraform plan
 
-# Deploy the infrastructure (includes automatic build)
+# Deploy the infrastructure
 terraform apply
 ```
 
-*Note: Terraform automatically detects your operating system and runs the appropriate build script when Lambda source files change.*
+### 4. Configure Kafka Event Source
 
-### 4. Configure Cloudflare Credentials (Optional - for legacy sync)
-
-If you plan to use the legacy Cloudflare KV sync function, update the Secrets Manager secret with your actual Cloudflare credentials:
+After deployment, configure the Lambda to consume from Kafka:
 
 ```bash
-# Get the secret name from Terraform output
-SECRET_NAME=$(terraform output -raw secrets_manager_secret_name)
+# Get Lambda ARN
+LAMBDA_ARN=$(terraform output -raw kafka_consumer_lambda_arn)
 
-# Update the secret with your actual credentials
-aws secretsmanager update-secret \
-  --secret-id "$SECRET_NAME" \
-  --secret-string '{
-    "api_token": "your_cloudflare_api_token",
-    "account_id": "your_cloudflare_account_id", 
-    "kv_namespace_id": "your_kv_namespace_id",
-    "kv_namespace": "your_namespace_name"
-  }'
+# Create event source mapping
+aws lambda create-event-source-mapping \
+  --function-name $LAMBDA_ARN \
+  --event-source-arn arn:aws:kafka:REGION:ACCOUNT:cluster/CLUSTER_NAME \
+  --topics failover-events \
+  --starting-position LATEST \
+  --batch-size 100
 ```
 
-### 5. Retrieve API Key
+### 5. Deploy Read Flags Service
 
-The Update API requires authentication via API key:
+#### Option A: Docker Deployment
 
 ```bash
-# Get the API key (sensitive output)
-API_KEY=$(terraform output -raw update_api_key_value)
+cd read_flags_service
+docker build -t read-flags-service:latest .
 
-# Or view instructions
-terraform output update_api_key_instructions
+docker run -d \
+  --name read-flags-service \
+  -e DYNAMODB_TABLE_NAME=failover-status \
+  -e ATOM_STORE_URL=http://atom-store-service:3000 \
+  -e POLLING_INTERVAL=10 \
+  -e AWS_REGION=us-east-1 \
+  read-flags-service:latest
 ```
 
-### 6. Update Redirect Status
-
-The primary way to manage redirect status is through the Update API:
+#### Option B: Kubernetes Deployment
 
 ```bash
-# Get the update endpoint and API key from Terraform output
-UPDATE_ENDPOINT=$(terraform output -raw update_redirect_status_endpoint)
-API_KEY=$(terraform output -raw update_api_key_value)
-
-# Turn redirect ON
-curl -X POST "$UPDATE_ENDPOINT" \
-  -H "Content-Type: application/json" \
-  -H "x-api-key: $API_KEY" \
-  -d '{"value": "ON", "updated_by": "admin", "reason": "Maintenance mode"}'
-
-# Turn redirect OFF
-curl -X POST "$UPDATE_ENDPOINT" \
-  -H "Content-Type: application/json" \
-  -H "x-api-key: $API_KEY" \
-  -d '{"value": "OFF", "updated_by": "admin", "reason": "Maintenance complete"}'
-
-# Get current status
-curl -H "x-api-key: $API_KEY" "$(terraform output -raw get_redirect_status_endpoint)"
+kubectl apply -f read_flags_service/k8s-deployment.yaml
+kubectl get pods -l app=read-flags-service
 ```
 
-### 7. Test Real-Time Notifications
+#### Option C: Direct Python Execution
 
 ```bash
-# In one terminal, connect to SSE endpoint
-curl -N -H "Accept: text/event-stream" "$(terraform output -raw sse_events_endpoint)"
+cd read_flags_service
+pip install -r requirements.txt
 
-# In another terminal, update the status
-API_KEY=$(terraform output -raw update_api_key_value)
-curl -X POST "$(terraform output -raw update_redirect_status_endpoint)" \
-  -H "Content-Type: application/json" \
-  -H "x-api-key: $API_KEY" \
-  -d '{"value": "ON", "updated_by": "test"}'
+export DYNAMODB_TABLE_NAME=failover-status
+export ATOM_STORE_URL=http://localhost:3000
+export POLLING_INTERVAL=10
 
-# You should see the update appear in the SSE stream immediately
+python service.py
 ```
 
-## Server-Sent Events (SSE) Integration
+### 6. Deploy Atom Store Server
 
-### Real-Time Notifications
+#### Option A: Docker Deployment
 
-The system includes a real-time notification system that sends updates to web clients when the 'redirect-all-users-to-essentials' value changes:
-
-**SSE Endpoint:**
 ```bash
-# Get the SSE endpoint URL
-terraform output sse_events_endpoint
+cd atom_store/server
+docker build -t atom-store-service:latest .
+
+docker run -d \
+  --name atom-store-service \
+  -p 3000:3000 \
+  -e PORT=3000 \
+  -e NODE_ENV=production \
+  atom-store-service:latest
 ```
 
-**Health Check:**
+#### Option B: Kubernetes Deployment
+
 ```bash
-# Check SSE endpoint health
-curl "$(terraform output -raw sse_health_endpoint)"
+kubectl apply -f atom_store/server/k8s-deployment.yaml
+kubectl get svc atom-store-service
 ```
 
-### Angular Integration
+#### Option C: Direct Node.js Execution
 
-Complete Angular integration examples are provided in the `angular-client-example/` directory:
+```bash
+cd atom_store/server
+npm install
+npm run build
+npm start
+```
 
-- `redirect-notification.service.ts` - Service for managing SSE connections
-- `redirect-status.component.ts` - Component for displaying redirect status
-- `README.md` - Detailed integration instructions
+### 7. Integrate in Angular Applications
 
-**Quick Angular Setup:**
+#### Install Dependencies
+
+Angular applications use the built-in HttpClient and WebSocket APIs, so no additional packages are required beyond standard Angular.
+
+#### Create Failover Service
+
+Create `failover.service.ts`:
+
 ```typescript
-import { RedirectNotificationService } from './redirect-notification.service';
+import { Injectable, NgZone } from '@angular/core';
+import { Observable, BehaviorSubject } from 'rxjs';
 
-// In your component
-constructor(private redirectService: RedirectNotificationService) {}
+export interface FailoverStatus {
+  appId: string;
+  failoverActive: boolean;
+  lastUpdated: string;
+  reason: string;
+  updatedBy: string;
+}
 
-ngOnInit() {
-  this.redirectService.connect();
+@Injectable({
+  providedIn: 'root'
+})
+export class FailoverService {
+  private ws: WebSocket | null = null;
+  private failoverStatus = new BehaviorSubject<Map<string, FailoverStatus>>(new Map());
+  private connectionStatus = new BehaviorSubject<'connected' | 'disconnected' | 'error'>('disconnected');
   
-  this.redirectService.getRedirectUpdates().subscribe(update => {
-    console.log('Redirect status changed:', update);
-    // Handle the update in your UI
-  });
-}
-```
+  constructor(private ngZone: NgZone) {}
 
-### Testing SSE Connection
+  connect(atomStoreUrl: string): void {
+    this.ws = new WebSocket(atomStoreUrl);
 
-Test the SSE endpoint directly:
-```bash
-# Connect to SSE stream
-curl -N -H "Accept: text/event-stream" "$(terraform output -raw sse_events_endpoint)"
+    this.ws.onopen = () => {
+      this.ngZone.run(() => {
+        console.log('Connected to Atom Store');
+        this.connectionStatus.next('connected');
+        this.fetchCurrentStatus(atomStoreUrl);
+      });
+    };
 
-# In another terminal, trigger an update
-aws lambda invoke --function-name cloudflare-data-sync --payload '{}' response.json
-```
+    this.ws.onmessage = (event) => {
+      this.ngZone.run(() => {
+        const data = JSON.parse(event.data);
+        this.updateFailoverStatus(data);
+      });
+    };
 
-You should see real-time events in the SSE stream when the redirect status changes.
+    this.ws.onerror = () => {
+      this.ngZone.run(() => {
+        this.connectionStatus.next('error');
+      });
+    };
 
-## Update API Usage
+    this.ws.onclose = () => {
+      this.ngZone.run(() => {
+        this.connectionStatus.next('disconnected');
+      });
+    };
+  }
 
-### Update Redirect Status
+  private async fetchCurrentStatus(atomStoreUrl: string): Promise<void> {
+    try {
+      const httpUrl = atomStoreUrl.replace('ws://', 'http://').replace('wss://', 'https://');
+      const response = await fetch(`${httpUrl}/api/failover/status`);
+      const data = await response.json();
+      
+      const statusMap = new Map<string, FailoverStatus>();
+      Object.entries(data).forEach(([appId, status]) => {
+        statusMap.set(appId, status as FailoverStatus);
+      });
+      
+      this.failoverStatus.next(statusMap);
+    } catch (error) {
+      console.error('Failed to fetch current status:', error);
+    }
+  }
 
-The Update API is the primary interface for managing redirect status:
+  private updateFailoverStatus(data: any): void {
+    const currentMap = new Map(this.failoverStatus.value);
+    
+    Object.entries(data).forEach(([appId, status]) => {
+      currentMap.set(appId, status as FailoverStatus);
+    });
+    
+    this.failoverStatus.next(currentMap);
+  }
 
-**Endpoint:** `POST /redirect-status`
+  getFailoverStatus(appId: string): Observable<FailoverStatus | undefined> {
+    return new Observable(observer => {
+      const subscription = this.failoverStatus.subscribe(statusMap => {
+        observer.next(statusMap.get(appId));
+      });
+      return () => subscription.unsubscribe();
+    });
+  }
 
-**Request Body:**
-```json
-{
-  "value": "ON",              // Required: "ON" or "OFF"
-  "updated_by": "admin",      // Optional: Who made the change
-  "reason": "Maintenance"     // Optional: Why the change was made
-}
-```
+  getConnectionStatus(): Observable<'connected' | 'disconnected' | 'error'> {
+    return this.connectionStatus.asObservable();
+  }
 
-**Response:**
-```json
-{
-  "success": true,
-  "message": "Redirect status updated to ON",
-  "data": {
-    "key": "redirect-all-users-to-essentials",
-    "value": "ON",
-    "timestamp": "2024-01-15T10:30:00Z",
-    "updated_by": "admin"
+  disconnect(): void {
+    if (this.ws) {
+      this.ws.close();
+      this.ws = null;
+    }
   }
 }
 ```
 
-### Get Current Status
+#### Use in Components
 
-**Endpoint:** `GET /redirect-status`
+Create `app1.component.ts`:
 
-**Response:**
-```json
-{
-  "success": true,
-  "data": {
-    "key": "redirect-all-users-to-essentials",
-    "value": "ON",
-    "timestamp": "2024-01-15T10:30:00Z",
-    "updated_by": "admin",
-    "source": "api"
+```typescript
+import { Component, OnInit, OnDestroy } from '@angular/core';
+import { Subscription } from 'rxjs';
+import { FailoverService, FailoverStatus } from './failover.service';
+
+@Component({
+  selector: 'app-app1',
+  template: `
+    <div *ngIf="failoverStatus?.failoverActive" class="failover-banner">
+      ⚠️ System is in failover mode: {{ failoverStatus.reason }}
+    </div>
+    <div *ngIf="!failoverStatus?.failoverActive">
+      Normal operation
+    </div>
+  `,
+  styles: [`
+    .failover-banner {
+      background-color: #fff3cd;
+      border: 1px solid #ffc107;
+      padding: 15px;
+      border-radius: 4px;
+      margin: 10px 0;
+      color: #856404;
+    }
+  `]
+})
+export class App1Component implements OnInit, OnDestroy {
+  failoverStatus: FailoverStatus | undefined;
+  private subscription: Subscription | null = null;
+
+  constructor(private failoverService: FailoverService) {}
+
+  ngOnInit(): void {
+    this.subscription = this.failoverService
+      .getFailoverStatus('app1')
+      .subscribe(status => {
+        this.failoverStatus = status;
+      });
+  }
+
+  ngOnDestroy(): void {
+    this.subscription?.unsubscribe();
   }
 }
 ```
 
-### API Authentication
+#### Initialize in App Component
 
-All Update API endpoints (except health check) require an API key for authentication. Include the API key in the `x-api-key` header:
+Update `app.component.ts`:
 
-```bash
-# Retrieve your API key
-API_KEY=$(terraform output -raw update_api_key_value)
+```typescript
+import { Component, OnInit } from '@angular/core';
+import { FailoverService } from './failover.service';
+
+@Component({
+  selector: 'app-root',
+  template: `
+    <app-app1></app-app1>
+  `
+})
+export class AppComponent implements OnInit {
+  constructor(private failoverService: FailoverService) {}
+
+  ngOnInit(): void {
+    // Connect to Atom Store WebSocket
+    this.failoverService.connect('ws://atom-store-service:3000');
+  }
+}
 ```
 
-### Examples
+See `angular-client-example/` for complete integration examples.
+
+### 8. Test the Complete Flow
+
+#### Trigger Failover via Ansible
 
 ```bash
-# Get API key
-API_KEY=$(terraform output -raw update_api_key_value)
+cd ansible-example
 
-# Turn redirect ON
-curl -X POST "$(terraform output -raw update_redirect_status_endpoint)" \
-  -H "Content-Type: application/json" \
-  -H "x-api-key: $API_KEY" \
-  -d '{"value": "ON", "updated_by": "admin", "reason": "Scheduled maintenance"}'
+# Activate failover
+ansible-playbook trigger-failover.yml
 
-# Turn redirect OFF
-curl -X POST "$(terraform output -raw update_redirect_status_endpoint)" \
-  -H "Content-Type: application/json" \
-  -H "x-api-key: $API_KEY" \
-  -d '{"value": "OFF", "updated_by": "admin", "reason": "Maintenance complete"}'
+# Deactivate failover
+ansible-playbook trigger-failover.yml \
+  -e "failover_apps=[{app_id: 'app1', failover_status: 'N', reason: 'Maintenance complete'}]"
+```
 
+#### Verify Kafka Message
+
+```bash
+kafka-console-consumer \
+  --bootstrap-server $KAFKA_BOOTSTRAP_SERVERS \
+  --topic failover-events \
+  --from-beginning
+```
+
+#### Check Lambda Execution
+
+```bash
+aws logs tail /aws/lambda/failover-system-kafka-consumer --follow
+```
+
+#### Verify DynamoDB Update
+
+```bash
+aws dynamodb get-item \
+  --table-name failover-status \
+  --key '{"pk": {"S": "FAILOVER_STATUS"}, "sk": {"S": "CURRENT"}}'
+```
+
+#### Monitor Read Flags Service
+
+```bash
+# Docker
+docker logs -f read-flags-service
+
+# Kubernetes
+kubectl logs -f deployment/read-flags-service
+```
+
+#### Check Atom Store Updates
+
+```bash
 # Get current status
-curl -H "x-api-key: $API_KEY" "$(terraform output -raw get_redirect_status_endpoint)"
+curl http://localhost:3000/api/failover/status
 
-# Health check (no API key required)
-curl "$(terraform output -raw update_health_endpoint)"
+# Connect to WebSocket (using wscat)
+npm install -g wscat
+wscat -c ws://localhost:3000
+```
+
+#### Verify Application Updates
+
+Open your Angular application in a browser and verify the failover banner appears.
+
+## Event Formats
+
+### Kafka Failover Event
+
+```json
+{
+  "event_type": "failover",
+  "timestamp": "2024-01-15T10:30:00Z",
+  "applications": [
+    {
+      "app_id": "app1",
+      "failover_status": "Y",
+      "reason": "Primary datacenter unavailable"
+    },
+    {
+      "app_id": "app2",
+      "failover_status": "Y",
+      "reason": "Primary datacenter unavailable"
+    }
+  ],
+  "triggered_by": "ansible_monitoring",
+  "severity": "critical"
+}
+```
+
+### DynamoDB Record
+
+```json
+{
+  "pk": "FAILOVER_STATUS",
+  "sk": "CURRENT",
+  "App1_Failover": "Y",
+  "App2_Failover": "Y",
+  "App1_LastUpdated": "2024-01-15T10:30:00Z",
+  "App2_LastUpdated": "2024-01-15T10:30:00Z",
+  "App1_Reason": "Primary datacenter unavailable",
+  "App2_Reason": "Primary datacenter unavailable",
+  "LastUpdatedBy": "ansible_monitoring"
+}
+```
+
+### Atom Store State
+
+```javascript
+// App 1 Failover Atom
+{
+  appId: "app1",
+  failoverActive: true,
+  lastUpdated: "2024-01-15T10:30:00Z",
+  reason: "Primary datacenter unavailable",
+  updatedBy: "ansible_monitoring"
+}
 ```
 
 ## Monitoring
@@ -372,33 +531,40 @@ terraform output cloudwatch_dashboard_url
 
 The dashboard includes:
 - Lambda invocations, errors, duration, and throttles
-- Custom application metrics (success count, error types)
+- DynamoDB read/write capacity and throttles
+- Custom application metrics
 - Recent error logs
 
 ### View Logs
 
 ```bash
-# Get log group name
-LOG_GROUP=$(terraform output -raw lambda_log_group_name)
+# Lambda logs
+aws logs tail /aws/lambda/failover-system-kafka-consumer --follow
 
-# View recent logs
-aws logs tail "$LOG_GROUP" --follow
+# Read Flags Service logs
+docker logs -f read-flags-service
+kubectl logs -f deployment/read-flags-service
 
-# Search for errors
-aws logs filter-log-events \
-  --log-group-name "$LOG_GROUP" \
-  --filter-pattern "ERROR"
+# Atom Store logs
+docker logs -f atom-store-service
+kubectl logs -f deployment/atom-store-service
 ```
 
 ### CloudWatch Alarms
 
 When `alert_email` is configured, the following alarms are created:
-- High error rate (threshold: 5 errors per 5 minutes)
-- High duration (threshold: 60 seconds average)
-- Authentication errors (any occurrence)
+- Lambda function errors (threshold: 5 errors per 5 minutes)
+- Lambda high duration (threshold: 60 seconds)
 - Lambda throttles (any occurrence)
 - DynamoDB throttles (any occurrence)
-- DynamoDB system errors (any occurrence)
+- DLQ messages (any message in dead letter queue)
+
+### Key Metrics to Monitor
+
+- **Kafka Consumer Lambda**: Invocation count, errors, duration, consumer lag
+- **Read Flags Service**: Polling frequency, DynamoDB read errors, change detection rate
+- **Atom Store Server**: Active WebSocket connections, API request rate, update latency
+- **DynamoDB**: Read/write capacity consumption, throttled requests
 
 ### X-Ray Tracing
 
@@ -407,266 +573,247 @@ View performance traces in the AWS X-Ray console:
 2. Select "Traces" to view execution traces
 3. Use filters to analyze performance patterns and bottlenecks
 
-## DynamoDB Schema
-
-The DynamoDB table uses a single-table design:
-
-- **Primary Key**: `pk` (partition key) - Format: `NAMESPACE#{namespace_id}`
-- **Sort Key**: `sk` (range key) - Format: `KEY#{key_name}`
-- **TTL**: `ttl` attribute for automatic data expiration
-- **Billing Mode**: Pay-per-request (on-demand)
-- **Point-in-Time Recovery**: Enabled
-
-### Record Structure
-
-```json
-{
-  "pk": "NAMESPACE#abc123",
-  "sk": "KEY#my-key-name",
-  "key": "my-key-name",
-  "value": "...",  // Original value (string or JSON)
-  "value_type": "string",  // or "json"
-  "namespace_id": "abc123",
-  "namespace_name": "my-namespace",
-  "metadata": {...},  // Cloudflare key metadata
-  "expiration": 1234567890,  // Unix timestamp (if set)
-  "created_at": "2024-01-15T10:30:00Z",
-  "updated_at": "2024-01-15T10:30:00Z",
-  "ttl": 1234567890  // For DynamoDB TTL
-}
-```
-
 ## Configuration
 
 ### Environment Variables
 
-The Lambda function uses these environment variables (automatically configured by Terraform):
-
-- `SECRETS_MANAGER_SECRET_NAME`: Name of the secret containing Cloudflare credentials
+#### Kafka Consumer Lambda
 - `DYNAMODB_TABLE_NAME`: Target DynamoDB table name
-- `RETRY_MAX_ATTEMPTS`: Maximum retry attempts (default: 3)
-- `API_TIMEOUT_SECONDS`: API call timeout (default: 30)
 
-### Lambda Function URL
+#### Read Flags Service
+- `DYNAMODB_TABLE_NAME`: DynamoDB table to poll
+- `ATOM_STORE_URL`: Atom Store Server endpoint
+- `POLLING_INTERVAL`: Seconds between polls (default: 10)
+- `AWS_REGION`: AWS region
+- `AWS_ACCESS_KEY_ID`: AWS credentials (if not using IAM role)
+- `AWS_SECRET_ACCESS_KEY`: AWS credentials (if not using IAM role)
 
-The function includes an optional HTTP endpoint for direct invocation:
+#### Atom Store Server
+- `PORT`: Server port (default: 3000)
+- `NODE_ENV`: Environment (production/development)
 
-```bash
-# Get the function URL
-FUNCTION_URL=$(terraform output -raw lambda_function_url)
+## Project Structure
 
-# Invoke via HTTP with default key (requires AWS IAM authentication)
-curl -X POST "$FUNCTION_URL" \
-  -H "Content-Type: application/json" \
-  -d '{}' \
-  --aws-sigv4 "aws:amz:us-east-1:lambda"
-
-# Invoke via HTTP with custom key
-curl -X POST "$FUNCTION_URL" \
-  -H "Content-Type: application/json" \
-  -d '{"key_name": "classic-domain"}' \
-  --aws-sigv4 "aws:amz:us-east-1:lambda"
+```
+.
+├── kafka_consumer_lambda/      # Kafka event processor Lambda
+│   ├── lambda_function.py
+│   └── requirements.txt
+├── read_flags_service/         # DynamoDB polling service
+│   ├── service.py
+│   ├── Dockerfile
+│   ├── k8s-deployment.yaml
+│   └── requirements.txt
+├── atom_store/                 # Atom Store implementation
+│   ├── server/                 # Node.js/TypeScript server
+│   ├── src/                    # React/Recoil library
+│   └── package.json
+├── application_examples/       # React integration examples
+│   ├── App1Example.tsx
+│   └── App2Example.tsx
+├── ansible-example/            # Ansible failover triggers
+│   ├── trigger-failover.yml
+│   └── README.md
+├── scripts/                    # Testing and utility scripts
+├── main.tf                     # Terraform main configuration
+├── kafka_consumer.tf           # Kafka Consumer Lambda infrastructure
+├── variables.tf                # Terraform variable definitions
+├── outputs.tf                  # Terraform outputs
+├── terraform.tfvars            # Your configuration values
+├── build.sh                    # Universal build script
+└── README.md                   # This file
 ```
 
 ## Development
 
-### Project Structure
-
-```
-.
-├── lambda.tf                    # Terraform configuration for Lambda and infrastructure
-├── update_api.tf                # Update API infrastructure
-├── notification.tf              # SSE notification infrastructure
-├── variables.tf                 # Terraform variable definitions
-├── outputs.tf                   # Terraform outputs
-├── terraform.tfvars            # Your configuration values
-├── update_lambda/
-│   ├── lambda_function.py      # Update API handler
-│   └── requirements.txt        # Python dependencies
-├── notification_lambda/
-│   ├── lambda_function.py      # Notification handler
-│   └── requirements.txt        # Python dependencies
-├── sse_lambda/
-│   ├── lambda_function.py      # SSE endpoint handler
-│   └── requirements.txt        # Python dependencies
-├── lambda_function/            # Legacy Cloudflare sync (optional)
-│   ├── lambda_function.py      # Main Lambda handler
-│   ├── requirements.txt        # Python dependencies
-│   ├── src/
-│   │   ├── config.py          # Configuration management
-│   │   ├── cloudflare_client.py  # Cloudflare API client (legacy)
-│   │   ├── data_transformer.py   # Data transformation logic
-│   │   ├── dynamodb_client.py    # DynamoDB operations
-│   │   ├── error_handler.py      # Error handling and logging
-│   │   └── lambda_optimizations.py  # Performance optimizations
-│   └── tests/
-│       ├── test_config.py
-│       ├── test_integration.py
-│       └── test_lambda_function.py
-├── angular-client-example/
-│   ├── redirect-notification.service.ts  # SSE service
-│   ├── redirect-update.service.ts        # Update API service
-│   └── redirect-status.component.ts      # UI component
-└── DEPLOYMENT.md               # Detailed deployment guide
-```
-
 ### Running Tests
 
-Tests are available for the legacy Cloudflare sync Lambda:
-
 ```bash
-cd lambda_function
+# Test Kafka Consumer Lambda locally
+cd kafka_consumer_lambda
 python -m pytest tests/ -v
-```
 
-All 26 tests should pass, covering:
-- Configuration management
-- Cloudflare API integration (legacy)
-- DynamoDB operations
-- Error handling and recovery
-- Lambda optimizations
-- End-to-end workflows
+# Test Read Flags Service locally
+cd read_flags_service
+python -m pytest tests/ -v
+
+# Test Atom Store Server
+cd atom_store/server
+npm test
+```
 
 ### Local Development
 
-1. Install dependencies:
-   ```bash
-   cd lambda_function
-   pip install -r requirements.txt
-   ```
+#### Start Services with Docker Compose
 
-2. Set environment variables:
-   ```bash
-   export SECRETS_MANAGER_SECRET_NAME="cloudflare-kv-credentials"
-   export DYNAMODB_TABLE_NAME="cloudflare-kv-data"
-   export RETRY_MAX_ATTEMPTS="3"
-   export API_TIMEOUT_SECONDS="30"
-   ```
+```bash
+# Start all services locally
+docker-compose -f docker-compose.test.yml up
 
-3. Run tests:
-   ```bash
-   python -m pytest tests/ -v
-   ```
+# This starts:
+# - Kafka (Zookeeper + Broker)
+# - DynamoDB Local
+# - Read Flags Service
+# - Atom Store Server
+```
+
+#### Manual Testing
+
+```bash
+# Send test Kafka event
+python scripts/send-test-kafka-event.py
+
+# Check DynamoDB
+aws dynamodb scan --table-name failover-status --endpoint-url http://localhost:8000
+
+# Check Atom Store
+curl http://localhost:3000/api/failover/status
+```
 
 ## Troubleshooting
 
-### Common Issues
+### Kafka Consumer Not Processing Events
 
-1. **Permission Errors**
-   - Ensure your AWS credentials have sufficient permissions
-   - Check IAM role policies for Lambda function
+**Symptoms**: Kafka events not updating DynamoDB
 
-2. **Cloudflare Authentication Errors**
-   - Verify API token has KV namespace access
-   - Check that credentials in Secrets Manager are correct
-   - Ensure account ID and namespace ID are accurate
+**Checks**:
+1. Verify event source mapping is configured
+2. Check Kafka consumer lag
+3. Review Lambda logs for processing errors
+4. Verify Kafka cluster connectivity and permissions
 
-3. **DynamoDB Throttling**
-   - Monitor write capacity in CloudWatch
-   - Consider adjusting batch sizes
-   - DynamoDB is configured for on-demand billing to handle bursts
+```bash
+# Check event source mapping
+aws lambda list-event-source-mappings --function-name failover-system-kafka-consumer
 
-4. **Lambda Timeouts**
-   - Increase `lambda_timeout` for large datasets
-   - Use pagination with `cursor` parameter
-   - Check CloudWatch logs for bottlenecks
+# Check Lambda logs
+aws logs tail /aws/lambda/failover-system-kafka-consumer --follow
+```
 
-### Debugging Steps
+### Read Flags Service Not Polling
 
-1. **Check CloudWatch Logs**:
-   ```bash
-   aws logs describe-log-streams \
-     --log-group-name "/aws/lambda/cloudflare-data-sync"
-   ```
+**Symptoms**: Atom Store not receiving updates
 
-2. **Verify Secrets Manager**:
-   ```bash
-   aws secretsmanager get-secret-value \
-     --secret-id cloudflare-kv-credentials
-   ```
+**Checks**:
+1. Verify service is running
+2. Check service logs for errors
+3. Verify DynamoDB table is accessible
+4. Test Atom Store URL connectivity
 
-3. **Test DynamoDB Access**:
-   ```bash
-   aws dynamodb describe-table \
-     --table-name cloudflare-kv-data
-   ```
+```bash
+# Check service status
+docker ps | grep read-flags-service
+kubectl get pods -l app=read-flags-service
 
-4. **Check X-Ray Traces**: Look for bottlenecks and errors in the X-Ray console
+# View logs
+docker logs read-flags-service
+kubectl logs -f deployment/read-flags-service
+```
+
+### Atom Store Not Receiving Updates
+
+**Symptoms**: Angular apps not showing failover status
+
+**Checks**:
+1. Verify Atom Store Server is running
+2. Check Read Flags Service can reach Atom Store
+3. Verify WebSocket connections are established
+
+```bash
+# Check Atom Store health
+curl http://localhost:3000/health
+
+# Check current status
+curl http://localhost:3000/api/failover/status
+```
+
+### Applications Not Showing Failover
+
+**Symptoms**: UI not updating with failover status
+
+**Checks**:
+1. Verify application is subscribed to correct failover status
+2. Check Failover Service is initialized
+3. Verify WebSocket connection is active
+4. Check browser console for errors
+5. Verify Angular service is properly injected
+
+## Performance Optimization
+
+### Reduce Latency
+1. **Decrease polling interval**: Set `POLLING_INTERVAL=5` (5 seconds)
+2. **Use DynamoDB Streams**: Replace polling with stream-based updates (~100-500ms)
+3. **Increase Read Flags Service replicas**: Scale horizontally
+4. **Use WebSocket**: Push updates instead of polling
+
+### Optimize Costs
+1. **Increase polling interval**: Set `POLLING_INTERVAL=30` (30 seconds)
+2. **Use DynamoDB on-demand billing**: Already configured
+3. **Reduce Lambda memory**: Adjust based on actual usage
+4. **Implement caching**: Cache DynamoDB reads in Read Flags Service
 
 ## Security Considerations
 
-- **API Authentication**: Update API secured with API keys and usage plans (rate limiting: 1000 req/s, quota: 1M req/month)
-- **Secrets Management**: Cloudflare credentials stored securely in AWS Secrets Manager (if using legacy sync)
-- **IAM Permissions**: Lambda functions have minimal required permissions (least privilege)
-- **Encryption**: DynamoDB encryption at rest enabled by default
-- **Network Security**: Consider VPC configuration for additional isolation (optional)
-- **API Key Security**: Store API keys securely, rotate regularly, never commit to version control
+### AWS Security
+- **IAM Permissions**: Lambda uses least privilege roles
+- **DynamoDB Encryption**: Encryption at rest enabled by default
+- **VPC**: Consider VPC configuration for Lambda (optional)
+- **Secrets Management**: Use AWS Secrets Manager for credentials
 
-## Cost Optimization
+### Kafka Security
+- **Authentication**: Use SASL/SSL for Kafka connections
+- **Authorization**: Configure Kafka ACLs
+- **Encryption**: Enable TLS for data in transit
 
-- **DynamoDB**: Uses pay-per-request billing mode (scales automatically)
-- **Lambda**: Optimize memory size based on actual usage patterns
-- **CloudWatch**: Log retention set to 14 days to control costs
-- **Monitoring**: Alarms only created when alert email is provided
-- **X-Ray**: Tracing enabled for debugging (consider disabling in production if not needed)
+### Application Security
+- **API Authentication**: Add authentication to Atom Store API
+- **CORS**: Configure CORS for Atom Store Server
+- **Rate Limiting**: Implement rate limiting on Atom Store API
+- **Input Validation**: Validate all inputs in Lambda and services
 
-## Maintenance
+## Cost Estimate
 
-### Update Lambda Function
+### Monthly Cost (Moderate Traffic)
 
-1. Modify code in `lambda_function/` directory
-2. Run `terraform apply` to redeploy
-3. Test the updated function
+**AWS Services**:
+- **Lambda**: ~$5-10/month (1M invocations)
+- **DynamoDB**: ~$5-15/month (on-demand, moderate traffic)
+- **CloudWatch**: ~$5/month (logs, metrics, alarms)
+- **X-Ray**: ~$2/month (tracing)
 
-### Update Cloudflare Credentials
+**External Services**:
+- **Kafka**: Varies by provider (AWS MSK: ~$200-500/month for small cluster)
+- **Compute**: Docker/K8s hosting for Read Flags Service and Atom Store (~$50-200/month)
 
-```bash
-aws secretsmanager update-secret \
-  --secret-id cloudflare-kv-credentials \
-  --secret-string '{...}'
-```
+**Total Estimated Cost**: $270-730/month (includes Kafka cluster)
 
-### Scale Configuration
-
-Adjust in `terraform.tfvars`:
-- `lambda_timeout`: Increase for larger datasets
-- `lambda_memory_size`: Increase for better performance
-- `error_rate_threshold`: Adjust alarm sensitivity
-- `duration_threshold_ms`: Adjust performance expectations
-
-## Cleanup
-
-To destroy all resources:
-
-```bash
-terraform destroy
-```
-
-**Warning**: This will permanently delete all data in the DynamoDB table and remove all monitoring configuration.
+See [AWS_COST_ESTIMATE.md](AWS_COST_ESTIMATE.md) for detailed breakdown.
 
 ## Additional Resources
 
-- **[API Authentication Guide](API_AUTHENTICATION.md)** - Comprehensive guide to API key authentication
-- **[API Authentication Summary](API_AUTHENTICATION_SUMMARY.md)** - Quick reference for authentication implementation
-- **[Dead Letter Queue Guide](DLQ_GUIDE.md)** - Complete guide to DLQ monitoring and troubleshooting
-- **[AWS Cost Estimate](AWS_COST_ESTIMATE.md)** - Detailed monthly cost breakdown
+- **[INTEGRATION_GUIDE.md](INTEGRATION_GUIDE.md)** - Complete deployment guide
+- **[SYSTEM_OVERVIEW.md](SYSTEM_OVERVIEW.md)** - System overview with diagrams
+- **[DEPLOYMENT_CHECKLIST.md](DEPLOYMENT_CHECKLIST.md)** - Deployment checklist
+- **[BUILD.md](BUILD.md)** - Build system documentation
+- **[DLQ_GUIDE.md](DLQ_GUIDE.md)** - Dead Letter Queue monitoring
+- **[AWS_COST_ESTIMATE.md](AWS_COST_ESTIMATE.md)** - Detailed cost breakdown
+- `angular-client-example/` - Angular integration examples
+- `ansible-example/` - Ansible failover trigger examples
 - [AWS Lambda Documentation](https://docs.aws.amazon.com/lambda/)
 - [Amazon DynamoDB Documentation](https://docs.aws.amazon.com/dynamodb/)
-- [Cloudflare KV API Documentation](https://developers.cloudflare.com/api/operations/workers-kv-namespace-list-a-namespace'-s-keys)
-- [Terraform AWS Provider](https://registry.terraform.io/providers/hashicorp/aws/latest/docs)
-- [AWS Secrets Manager](https://docs.aws.amazon.com/secretsmanager/)
-- [AWS API Gateway API Keys](https://docs.aws.amazon.com/apigateway/latest/developerguide/api-gateway-api-key-source.html)
-- [Amazon SQS Dead Letter Queues](https://docs.aws.amazon.com/AWSSimpleQueueService/latest/SQSDeveloperGuide/sqs-dead-letter-queues.html)
+- [Angular Documentation](https://angular.io/docs)
+- [RxJS Documentation](https://rxjs.dev/)
+- [Apache Kafka Documentation](https://kafka.apache.org/documentation/)
 
 ## License
 
-This project is provided as-is for use in your AWS infrastructure.
+This project is provided as-is for use in your infrastructure.
 
 ## Support
 
 For issues or questions:
-1. Check CloudWatch Logs for error details
-2. Review X-Ray traces for performance issues
-3. Verify IAM permissions and resource configurations
-4. Ensure DynamoDB table is accessible
-5. For legacy sync: Verify Cloudflare API credentials if using Cloudflare sync
+1. Check CloudWatch Logs for detailed errors
+2. Review service logs (Docker/Kubernetes)
+3. Verify IAM permissions and network connectivity
+4. Test individual components in isolation
+5. Consult the troubleshooting section above

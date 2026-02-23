@@ -1,22 +1,73 @@
-# Terraform configuration for DynamoDB Redirect Status Management
+# Terraform Configuration for Failover Status Management System
 # Copy this file to terraform.tfvars and update with your values
 
+# ============================================================================
 # AWS Configuration
+# ============================================================================
 aws_region = "us-east-1"
 
+# ============================================================================
 # Lambda Function Configuration
-lambda_function_name   = "cloudflare-data-sync"        # Legacy sync function (optional)
-dynamodb_table_name    = "cloudflare-kv-data"          # Base name for DynamoDB tables
-cloudflare_secret_name = "cloudflare-kv-credentials"   # For legacy sync (optional)
+# ============================================================================
+lambda_function_name = "failover-system"
+dynamodb_table_name  = "failover-status"
 
 # Lambda Performance Settings
 lambda_timeout     = 300  # 5 minutes
 lambda_memory_size = 512  # MB
 
-# Monitoring and Alerting (optional)
-alert_email           = ""      # Leave empty to disable alerts, or set to your email
-error_rate_threshold  = 5       # Percentage
+# ============================================================================
+# MSK (Managed Streaming for Apache Kafka) Configuration
+# ============================================================================
+
+# Set to true to create MSK cluster, false to skip (if using external Kafka)
+create_msk_cluster = true
+
+# MSK Cluster Settings
+msk_cluster_name           = "failover-events-cluster"
+msk_kafka_version          = "3.5.1"
+msk_instance_type          = "kafka.t3.small"  # Use kafka.m5.large or larger for production
+msk_number_of_broker_nodes = 2                 # Must be multiple of AZs (2 or 3 recommended)
+msk_ebs_volume_size        = 100               # GB per broker
+
+# MSK Instance Types:
+# - kafka.t3.small:  2 vCPU, 2 GB RAM  - Dev/Test (~$50/month per broker)
+# - kafka.m5.large:  2 vCPU, 8 GB RAM  - Small Production (~$150/month per broker)
+# - kafka.m5.xlarge: 4 vCPU, 16 GB RAM - Medium Production (~$300/month per broker)
+# - kafka.m5.2xlarge: 8 vCPU, 32 GB RAM - Large Production (~$600/month per broker)
+
+# ============================================================================
+# Monitoring and Alerting (Optional)
+# ============================================================================
+
+# Email for CloudWatch alarms (leave empty to disable)
+alert_email = ""  # Example: "ops-team@example.com"
+
+# Alarm thresholds
+error_rate_threshold  = 5       # Errors per 5 minutes
 duration_threshold_ms = 60000   # 60 seconds
 
-# Note: Cloudflare credentials are only needed if you plan to use the legacy sync function
-# The primary system uses DynamoDB as the source of truth via the Update API
+# ============================================================================
+# Legacy Cloudflare Sync (Optional - Not Needed for Primary System)
+# ============================================================================
+
+# Only needed if migrating from Cloudflare KV
+cloudflare_secret_name = "cloudflare-kv-credentials"
+
+# ============================================================================
+# Cost Estimation (with MSK)
+# ============================================================================
+# 
+# Monthly costs (approximate):
+# - Lambda: $5-10 (1M invocations)
+# - DynamoDB: $5-15 (on-demand)
+# - CloudWatch: $5 (logs, metrics)
+# - MSK (2 x kafka.t3.small): ~$100
+# - MSK (2 x kafka.m5.large): ~$300
+# - Data transfer: $5-20
+# 
+# Total (dev/test): ~$120-150/month
+# Total (production): ~$320-350/month
+# 
+# Note: Add costs for Read Flags Service and Atom Store Server hosting
+# ============================================================================

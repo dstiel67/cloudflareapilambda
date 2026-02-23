@@ -1,6 +1,426 @@
-# Angular Client for Cloudflare Redirect Notifications
+# Angular Client for Failover Status Management
 
-This directory contains example Angular code for connecting to the Server-Sent Events (SSE) endpoint to receive real-time notifications when the 'redirect-all-users-to-essentials' status changes, and for updating the redirect status via the Update API.
+This directory contains complete Angular examples for integrating with the Atom Store failover status management system.
+
+## Overview
+
+The Angular client connects to the Atom Store WebSocket server to receive real-time failover status updates. It uses RxJS Observables for reactive state management and provides two example applications:
+
+- **App 1**: Displays a failover banner when failover is active
+- **App 2**: Automatically redirects to a backup system during failover
+
+## Files
+
+- `failover.service.ts` - Angular service for managing Atom Store WebSocket connection
+- `app.component.ts` - Root component with navigation between examples
+- `app1.component.ts` - Example app with failover banner
+- `app2.component.ts` - Example app with automatic redirect
+- `app.module.ts` - Angular module configuration
+- `main.ts` - Application bootstrap
+- `README.md` - This file
+
+## Architecture
+
+```
+Atom Store (WebSocket) → FailoverService → Components (via Observables)
+```
+
+The `FailoverService` maintains a WebSocket connection to the Atom Store server and exposes failover status updates through RxJS Observables. Components subscribe to these Observables to receive real-time updates.
+
+## Setup Instructions
+
+### 1. Prerequisites
+
+- Angular 15+ (or compatible version)
+- Node.js 18+
+- Atom Store Server running (see main README.md)
+
+### 2. Install Dependencies
+
+```bash
+npm install @angular/core @angular/common @angular/platform-browser @angular/platform-browser-dynamic
+npm install rxjs
+```
+
+### 3. Configure Atom Store URL
+
+In `app.component.ts`, update the `ATOM_STORE_URL` constant:
+
+```typescript
+private readonly ATOM_STORE_URL = 'ws://localhost:3000';
+```
+
+For production, use your actual Atom Store server URL:
+```typescript
+private readonly ATOM_STORE_URL = 'wss://atom-store.example.com';
+```
+
+### 4. Add to Your Angular Project
+
+Copy the files to your Angular project:
+
+```bash
+# Copy service
+cp failover.service.ts src/app/
+
+# Copy components
+cp app1.component.ts src/app/
+cp app2.component.ts src/app/
+cp app.component.ts src/app/
+
+# Copy module (or integrate into your existing module)
+cp app.module.ts src/app/
+```
+
+### 5. Import in Your Module
+
+If you have an existing Angular module, add the components and service:
+
+```typescript
+import { HttpClientModule } from '@angular/common/http';
+import { FailoverService } from './failover.service';
+import { App1Component } from './app1.component';
+import { App2Component } from './app2.component';
+
+@NgModule({
+  imports: [
+    HttpClientModule,  // Required for REST API calls
+    // ... other imports
+  ],
+  providers: [
+    FailoverService,   // Singleton service
+    // ... other providers
+  ],
+  declarations: [
+    App1Component,
+    App2Component,
+    // ... other components
+  ]
+})
+export class AppModule { }
+```
+
+### 6. Initialize in App Component
+
+In your root component, initialize the Failover Service:
+
+```typescript
+import { Component, OnInit } from '@angular/core';
+import { FailoverService } from './failover.service';
+
+@Component({
+  selector: 'app-root',
+  template: `<router-outlet></router-outlet>`
+})
+export class AppComponent implements OnInit {
+  constructor(private failoverService: FailoverService) {}
+
+  ngOnInit(): void {
+    // Connect to Atom Store
+    this.failoverService.connect('ws://localhost:3000');
+  }
+}
+```
+
+## Usage Examples
+
+### Basic Usage - Subscribe to Failover Status
+
+```typescript
+import { Component, OnInit, OnDestroy } from '@angular/core';
+import { Subscription } from 'rxjs';
+import { FailoverService, FailoverStatus } from './failover.service';
+
+@Component({
+  selector: 'app-my-component',
+  template: `
+    <div *ngIf="failoverStatus?.failoverActive" class="alert">
+      ⚠️ System is in failover mode: {{ failoverStatus.reason }}
+    </div>
+  `
+})
+export class MyComponent implements OnInit, OnDestroy {
+  failoverStatus: FailoverStatus | undefined;
+  private subscription: Subscription | null = null;
+
+  constructor(private failoverService: FailoverService) {}
+
+  ngOnInit(): void {
+    this.subscription = this.failoverService
+      .getFailoverStatus('app1')
+      .subscribe(status => {
+        this.failoverStatus = status;
+        
+        if (status?.failoverActive) {
+          console.log('Failover active:', status.reason);
+          // Handle failover state
+        }
+      });
+  }
+
+  ngOnDestroy(): void {
+    this.subscription?.unsubscribe();
+  }
+}
+```
+
+### Monitor Connection Status
+
+```typescript
+import { Component, OnInit } from '@angular/core';
+import { FailoverService, ConnectionStatus } from './failover.service';
+
+@Component({
+  selector: 'app-status-monitor',
+  template: `
+    <div class="connection-status" [ngClass]="connectionStatus">
+      Status: {{ connectionStatus }}
+    </div>
+  `
+})
+export class StatusMonitorComponent implements OnInit {
+  connectionStatus: ConnectionStatus = 'disconnected';
+
+  constructor(private failoverService: FailoverService) {}
+
+  ngOnInit(): void {
+    this.failoverService.getConnectionStatus().subscribe(status => {
+      this.connectionStatus = status;
+      
+      if (status === 'error') {
+        console.error('Connection error - will attempt reconnect');
+      }
+    });
+  }
+}
+```
+
+### Get All Failover Statuses
+
+```typescript
+import { Component, OnInit } from '@angular/core';
+import { FailoverService, FailoverStatus } from './failover.service';
+
+@Component({
+  selector: 'app-dashboard',
+  template: `
+    <div *ngFor="let status of allStatuses | keyvalue">
+      <h3>{{ status.key }}</h3>
+      <p>Failover: {{ status.value.failoverActive ? 'Active' : 'Inactive' }}</p>
+    </div>
+  `
+})
+export class DashboardComponent implements OnInit {
+  allStatuses: Map<string, FailoverStatus> = new Map();
+
+  constructor(private failoverService: FailoverService) {}
+
+  ngOnInit(): void {
+    this.failoverService.getAllFailoverStatuses().subscribe(statuses => {
+      this.allStatuses = statuses;
+    });
+  }
+}
+```
+
+## Service API
+
+### FailoverService
+
+#### Methods
+
+- `connect(atomStoreUrl: string): void` - Connect to Atom Store WebSocket
+- `disconnect(): void` - Disconnect from Atom Store
+- `isConnected(): boolean` - Check if currently connected
+- `getFailoverStatus(appId: string): Observable<FailoverStatus | undefined>` - Get status for specific app
+- `getAllFailoverStatuses(): Observable<Map<string, FailoverStatus>>` - Get all statuses
+- `getConnectionStatus(): Observable<ConnectionStatus>` - Get connection status
+
+#### Interfaces
+
+```typescript
+interface FailoverStatus {
+  appId: string;
+  failoverActive: boolean;
+  lastUpdated: string;
+  reason: string;
+  updatedBy: string;
+}
+
+type ConnectionStatus = 'connected' | 'disconnected' | 'connecting' | 'error';
+```
+
+## Features
+
+### Automatic Reconnection
+
+The service automatically attempts to reconnect if the WebSocket connection is lost:
+- Exponential backoff (2s, 4s, 8s, 16s, 32s)
+- Maximum 5 reconnection attempts
+- Automatic status fetch on reconnection
+
+### Change Detection
+
+The service uses Angular's `NgZone` to ensure all WebSocket events trigger change detection properly.
+
+### Memory Management
+
+All subscriptions should be properly unsubscribed in `ngOnDestroy()` to prevent memory leaks:
+
+```typescript
+ngOnDestroy(): void {
+  this.subscription?.unsubscribe();
+}
+```
+
+## Testing
+
+### Test with Local Atom Store
+
+1. Start the Atom Store server:
+   ```bash
+   cd atom_store/server
+   npm install
+   npm start
+   ```
+
+2. Start your Angular app:
+   ```bash
+   ng serve
+   ```
+
+3. Open http://localhost:4200
+
+4. Trigger a failover event via Ansible or Kafka
+
+5. Verify the UI updates in real-time
+
+### Test WebSocket Connection
+
+```bash
+# Test WebSocket connection directly
+wscat -c ws://localhost:3000
+
+# You should see connection confirmation
+```
+
+### Test REST API
+
+```bash
+# Get current status
+curl http://localhost:3000/api/failover/status
+
+# Should return JSON with all app statuses
+```
+
+## Troubleshooting
+
+### WebSocket Connection Fails
+
+**Symptoms**: `connectionStatus` shows 'error' or 'disconnected'
+
+**Solutions**:
+1. Verify Atom Store server is running: `curl http://localhost:3000/health`
+2. Check WebSocket URL is correct (ws:// for local, wss:// for production)
+3. Check browser console for CORS or network errors
+4. Verify firewall allows WebSocket connections
+
+### No Status Updates
+
+**Symptoms**: Component doesn't receive failover status updates
+
+**Solutions**:
+1. Verify subscription is active (check `ngOnInit`)
+2. Check browser console for errors
+3. Verify app ID matches the one in DynamoDB
+4. Test REST API: `curl http://localhost:3000/api/failover/status`
+
+### Memory Leaks
+
+**Symptoms**: Application slows down over time
+
+**Solutions**:
+1. Ensure all subscriptions are unsubscribed in `ngOnDestroy()`
+2. Use `takeUntil()` operator for automatic cleanup
+3. Check for circular references
+
+### Change Detection Issues
+
+**Symptoms**: UI doesn't update when status changes
+
+**Solutions**:
+1. Service uses `NgZone.run()` - verify it's working
+2. Try manual change detection: `ChangeDetectorRef.detectChanges()`
+3. Check if component is using OnPush strategy
+
+## Production Considerations
+
+### Security
+
+1. **Use WSS (WebSocket Secure)** in production:
+   ```typescript
+   this.failoverService.connect('wss://atom-store.example.com');
+   ```
+
+2. **Add authentication** to Atom Store API if needed
+
+3. **Validate data** from WebSocket messages
+
+### Performance
+
+1. **Limit subscriptions**: Only subscribe to apps you need
+2. **Use OnPush change detection** for better performance
+3. **Implement virtual scrolling** for large lists
+
+### Monitoring
+
+1. **Log connection events** for debugging
+2. **Track reconnection attempts** in analytics
+3. **Monitor WebSocket latency**
+
+## Example Applications
+
+### App 1: Failover Banner
+
+Shows a prominent banner when failover is active. Good for:
+- Informing users of system status
+- Displaying maintenance messages
+- Showing limited functionality warnings
+
+### App 2: Automatic Redirect
+
+Automatically redirects to backup system during failover. Good for:
+- Critical applications requiring immediate failover
+- Systems with dedicated backup infrastructure
+- Scenarios where continued operation on primary is not possible
+
+## Integration with Existing Apps
+
+To integrate into an existing Angular application:
+
+1. Copy `failover.service.ts` to your services directory
+2. Add `HttpClientModule` to your app module
+3. Initialize service in root component
+4. Subscribe to status in components that need it
+5. Style failover UI to match your design system
+
+## Support
+
+For issues or questions:
+1. Check browser console for errors
+2. Verify Atom Store server is running
+3. Test WebSocket connection with `wscat`
+4. Review service logs for connection issues
+5. Consult main project documentation
+
+## Additional Resources
+
+- [Main README](../README.md) - Complete system documentation
+- [ARCHITECTURE.md](../ARCHITECTURE.md) - System architecture
+- [INTEGRATION_GUIDE.md](../INTEGRATION_GUIDE.md) - Deployment guide
+- [Angular Documentation](https://angular.io/docs)
+- [RxJS Documentation](https://rxjs.dev/)
+
 
 ## Files
 
